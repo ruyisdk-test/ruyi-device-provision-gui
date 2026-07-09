@@ -69,6 +69,7 @@ def test_facade_exposes_expected_symbols() -> None:
         "get_postinst_msg",
         "is_disk_or_child_mounted",
         "list_disks",
+        "storage_platform_hint",
         "list_entity_types",
         "list_package_version_selections",
         "is_package_version_customization_possible",
@@ -97,8 +98,11 @@ def test_main_window_constructs(qtbot) -> None:
     assert window._stack.count() == len(window.STEP_TITLES)
 
 
-def test_flash_worker_adds_dd_progress() -> None:
+def test_flash_worker_adds_dd_progress_on_linux(monkeypatch) -> None:
+    from ruyi_device_provision_gui import workers
     from ruyi_device_provision_gui.workers import FlashWorker
+
+    monkeypatch.setattr(workers.platform, "system", lambda: "Linux")
 
     assert FlashWorker._argv_with_gui_progress(["dd", "if=a", "of=b", "bs=4096"]) == [
         "dd",
@@ -121,6 +125,15 @@ def test_flash_worker_adds_dd_progress() -> None:
         "of=b",
         "status=none",
     ]
+
+
+def test_flash_worker_does_not_add_dd_progress_on_macos(monkeypatch) -> None:
+    from ruyi_device_provision_gui import workers
+    from ruyi_device_provision_gui.workers import FlashWorker
+
+    monkeypatch.setattr(workers.platform, "system", lambda: "Darwin")
+
+    assert FlashWorker._argv_with_gui_progress(["dd", "if=a", "of=b"]) == ["dd", "if=a", "of=b"]
 
 
 def test_disk_mount_detection_checks_children(monkeypatch) -> None:
@@ -146,6 +159,7 @@ def test_list_disks_keeps_mounted_disks(monkeypatch) -> None:
             return self
 
     fake_paths = [FakePath("sdc"), FakePath("sda"), FakePath("sdb"), FakePath("sdd")]
+    monkeypatch.setattr(ruyi_facade.platform, "system", lambda: "Linux")
     monkeypatch.setattr(ruyi_facade.pathlib.Path, "iterdir", lambda _path: fake_paths)
     monkeypatch.setattr(ruyi_facade.pathlib.Path, "is_block_device", lambda _path: True)
     monkeypatch.setattr(ruyi_facade, "_skip_block_device_name", lambda _name: False)
@@ -158,6 +172,28 @@ def test_list_disks_keeps_mounted_disks(monkeypatch) -> None:
     assert [disk.path for disk in disks] == ["/dev/sdb", "/dev/sdd", "/dev/sda", "/dev/sdc"]
     assert [disk.mounted for disk in disks] == [False, False, True, True]
     assert "mounted" in disks[2].display_name
+
+
+def test_darwin_list_disks_keeps_mounted_disks(monkeypatch) -> None:
+    from ruyi_device_provision_gui import ruyi_facade
+
+    def fake_diskutil(*args: str):
+        if args == ("list", "-plist"):
+            return {"WholeDisks": ["disk2", "disk1"]}
+        if args == ("info", "-plist", "disk1"):
+            return {"TotalSize": 1024, "MediaName": "Mounted", "VirtualOrPhysical": "Physical"}
+        if args == ("info", "-plist", "disk2"):
+            return {"TotalSize": 2048, "MediaName": "Unmounted", "VirtualOrPhysical": "Physical"}
+        return None
+
+    monkeypatch.setattr(ruyi_facade.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(ruyi_facade, "_darwin_diskutil_plist", fake_diskutil)
+    monkeypatch.setattr(ruyi_facade, "_darwin_disk_or_child_mounted", lambda path: path == "/dev/rdisk1")
+
+    disks = ruyi_facade.list_disks()
+
+    assert [disk.path for disk in disks] == ["/dev/rdisk2", "/dev/rdisk1"]
+    assert [disk.mounted for disk in disks] == [False, True]
 
 
 def test_flash_worker_emits_carriage_return_output() -> None:

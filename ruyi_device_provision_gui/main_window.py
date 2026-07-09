@@ -9,6 +9,7 @@ controls for the current step.
 from __future__ import annotations
 
 import os
+import platform
 import signal
 import sys
 from pathlib import Path
@@ -296,10 +297,7 @@ class ProvisionMainWindow(QMainWindow):
         self._add_page(
             "Provide storage paths",
             [
-                QLabel(
-                    "Enter block device paths such as /dev/sdX or /dev/nvme0n1. "
-                    "Mounted block devices are rejected for safety."
-                ),
+                QLabel(ruyi_facade.storage_platform_hint()),
                 self._storage_box,
                 self._storage_error,
             ],
@@ -494,7 +492,7 @@ class ProvisionMainWindow(QMainWindow):
         if proc is None:
             return
         pid = proc.processId()
-        if pid > 0:
+        if pid > 0 and platform.system() != "Windows":
             try:
                 os.killpg(pid, signal.SIGTERM)
             except ProcessLookupError:
@@ -503,7 +501,7 @@ class ProvisionMainWindow(QMainWindow):
                 os.kill(pid, signal.SIGTERM)
         proc.terminate()
         if not proc.waitForFinished(3000):
-            if pid > 0:
+            if pid > 0 and platform.system() != "Windows":
                 try:
                     os.killpg(pid, signal.SIGKILL)
                 except ProcessLookupError:

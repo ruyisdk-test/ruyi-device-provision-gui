@@ -21,7 +21,7 @@ provision strategy plugins.
 
 ## Requirements
 
-- Linux.
+- Linux, macOS, or Windows through WSL2.
 - Python 3.11 or newer.
 - `uv` for local development.
 - A graphical Qt session.
@@ -37,14 +37,18 @@ uv sync --dev
 ```
 
 The GUI itself does not depend on `lsblk` or the external `git` command.
-Disk discovery uses `/sys/block`, `/dev`, and ruyi's existing
-`/proc/self/mounts` parsing.
+Linux disk discovery uses `/sys/block`, `/dev`, and ruyi's existing
+`/proc/self/mounts` parsing. macOS disk discovery uses `diskutil` plist output.
+Native Windows storage flashing is not supported; run the GUI inside WSL2 and
+attach USB devices with `usbipd` / usbip.
 
 Flash strategies may require commands depending on the selected device image:
 
 - `dd` for dd-based flashing.
 - `sudo` when a strategy retries a failed command with elevated privileges.
 - `fastboot` for fastboot-based flashing and the review-page device check.
+  On macOS, fastboot device discovery is best-effort and may not find devices
+  depending on drivers, permissions, and USB mode.
 
 ## Run
 
@@ -103,7 +107,8 @@ The GUI mirrors the CLI flow in a form that can be driven from one window:
 ## Storage Selection
 
 For dd-based strategies, the Storage step lists disk targets in a combo box.
-The automatic disk list is built from `/sys/block` and `/dev`:
+On Linux and WSL2, the automatic disk list is built from `/sys/block` and
+`/dev`:
 
 - Whole disks are listed.
 - Loop, RAM, zram, device-mapper, and md devices are skipped.
@@ -113,6 +118,10 @@ The automatic disk list is built from `/sys/block` and `/dev`:
 
 The `...` button opens a `QFileDialog` rooted at `/dev`. Paths selected through
 the dialog are appended after the automatic disk list, in the order selected.
+
+On macOS, the automatic list is built from `diskutil list -plist` and
+`diskutil info -plist`, and whole disks are offered as raw disk paths such as
+`/dev/rdiskN`.
 
 If the selected disk or one of its partitions is mounted, the GUI shows a red
 warning and requires an explicit confirmation checkbox before continuing.

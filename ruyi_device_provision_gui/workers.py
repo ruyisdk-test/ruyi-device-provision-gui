@@ -16,6 +16,7 @@ every line in real time.
 from __future__ import annotations
 
 import os
+import platform
 import selectors
 import subprocess
 
@@ -101,6 +102,8 @@ class FlashWorker(_BaseWorker):
             self._fail(exc)
 
     def _run_with_gui_prompts(self) -> int:
+        if platform.system() == "Windows":
+            raise RuntimeError("Native Windows flashing is not supported. Run this GUI inside WSL2 with usbipd-attached USB devices.")
         from ruyi.pluginhost import api as plugin_api
 
         original_ask = plugin_api.RuyiHostAPI.cli_ask_for_yesno_confirmation
@@ -158,6 +161,8 @@ class FlashWorker(_BaseWorker):
 
     @staticmethod
     def _argv_with_gui_progress(argv: list[str]) -> list[str]:
+        if platform.system() != "Linux":
+            return argv
         if not argv:
             return argv
         prefix: list[str]
