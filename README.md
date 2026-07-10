@@ -168,12 +168,14 @@ ruyi_device_provision_gui/
   __main__.py        # module entry point
   app.py             # QApplication bootstrap
   download_child.py  # subprocess entry point for download/install
+  host_storage.py    # Linux/WSL2/macOS disk discovery and mount checks
   main_window.py     # single-window Qt UI
   qt_logger.py       # RuyiLogger subclass that emits Qt signals
   ruyi_facade.py     # Qt-free facade over ruyi internals
   state.py           # GUI flow state
   workers.py         # QThread workers for repo sync and flashing
 tests/
+  test_host_storage.py # platform storage backend tests
   test_smoke.py      # import, UI construction, and targeted regression tests
 ```
 

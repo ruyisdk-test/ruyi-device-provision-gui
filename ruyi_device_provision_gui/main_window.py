@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import ruyi_facade
+from . import host_storage, ruyi_facade
 from .qt_logger import LogEmitter, QtRuyiLogger
 from .state import WizardState
 from .workers import FlashWorker, RepoInitWorker, RepoSyncWorker, run_worker_in_thread
@@ -297,7 +297,7 @@ class ProvisionMainWindow(QMainWindow):
         self._add_page(
             "Provide storage paths",
             [
-                QLabel(ruyi_facade.storage_platform_hint()),
+                QLabel(host_storage.storage_platform_hint()),
                 self._storage_box,
                 self._storage_error,
             ],
@@ -1064,7 +1064,7 @@ class ProvisionMainWindow(QMainWindow):
         self._storage_mount_warnings.clear()
         self._storage_mount_confirmations.clear()
         self._storage_error.setText("")
-        disks = ruyi_facade.list_disks()
+        disks = host_storage.list_disks()
         for part in self.state.prepared.requested_host_blkdevs:
             desc = ruyi_facade.part_description(part)
             label = QLabel(f"{desc} ({part})")
@@ -1103,7 +1103,11 @@ class ProvisionMainWindow(QMainWindow):
         self._storage_layout.addStretch()
 
     def _browse_storage(self, edit: QComboBox) -> None:
-        dialog = QFileDialog(self, "Select disk or image file", "/dev")
+        dialog = QFileDialog(
+            self,
+            "Select disk or image file",
+            host_storage.DEFAULT_DEVICE_ROOT,
+        )
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
         dialog.setFileMode(QFileDialog.FileMode.AnyFile)
         dialog.setNameFilter("All entries (*)")
@@ -1136,7 +1140,7 @@ class ProvisionMainWindow(QMainWindow):
 
     def _refresh_storage_mount_warning(self, edit: QComboBox, warning: QLabel, confirm: QCheckBox) -> None:
         path = self._storage_path(edit)
-        mounted = bool(path and os.path.exists(path) and ruyi_facade.is_disk_or_child_mounted(path))
+        mounted = bool(path and os.path.exists(path) and host_storage.is_disk_or_child_mounted(path))
         if not mounted:
             confirm.setChecked(False)
         warning.setVisible(mounted)
@@ -1157,7 +1161,7 @@ class ProvisionMainWindow(QMainWindow):
             path = self._storage_path(edit)
             if not path or not os.path.exists(path):
                 return False
-            if ruyi_facade.is_disk_or_child_mounted(path) and not self._storage_mount_confirmations[part].isChecked():
+            if host_storage.is_disk_or_child_mounted(path) and not self._storage_mount_confirmations[part].isChecked():
                 return False
         return True
 
@@ -1168,7 +1172,7 @@ class ProvisionMainWindow(QMainWindow):
             if not os.path.exists(path):
                 self._storage_error.setText(f"'{path}' does not exist.")
                 return False
-            if ruyi_facade.is_disk_or_child_mounted(path) and not self._storage_mount_confirmations[part].isChecked():
+            if host_storage.is_disk_or_child_mounted(path) and not self._storage_mount_confirmations[part].isChecked():
                 self._storage_error.setText(
                     f"'{path}' is mounted. Confirm the mounted-device warning before continuing."
                 )
