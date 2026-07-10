@@ -419,6 +419,12 @@ class ProvisionMainWindow(QMainWindow):
 
     def _start_flash(self) -> None:
         assert self.state.prepared is not None
+        storage_error = self._flash_storage_error()
+        if storage_error is not None:
+            self._populate_storage()
+            self._storage_error.setText(storage_error)
+            self._set_step(self.STEP_STORAGE)
+            return
         self._flash_recoverable = False
         self._flash_log.clear()
         self._flash_status.setText("Flashing the device...")
@@ -536,6 +542,9 @@ class ProvisionMainWindow(QMainWindow):
         self._download_status.setText(f"Download process error: {error.name}.")
         self._download_ok = False
         self._download_recoverable = True
+        if error == QProcess.ProcessError.FailedToStart and self._download_process is not None:
+            self._download_process.deleteLater()
+            self._download_process = None
         self._refresh_buttons()
 
     def _on_download_process_finished(self, ret: int, _status) -> None:
@@ -681,7 +690,7 @@ class ProvisionMainWindow(QMainWindow):
     def _on_step_clicked(self, row: int) -> None:
         if row < 0 or row == self._current_step:
             return
-        if self._is_busy():
+        if self._is_busy() or row > self._current_step:
             self._steps.setCurrentRow(self._current_step)
             return
         if self._can_open_step(row):
@@ -1066,6 +1075,7 @@ class ProvisionMainWindow(QMainWindow):
         self._storage_error.setText("")
         disks = host_storage.list_disks()
         for part in self.state.prepared.requested_host_blkdevs:
+            previous_path = self.state.host_blkdev_map.get(part)
             desc = ruyi_facade.part_description(part)
             label = QLabel(f"{desc} ({part})")
             edit = QComboBox()
@@ -1081,7 +1091,7 @@ class ProvisionMainWindow(QMainWindow):
             confirm.setVisible(False)
             confirm.toggled.connect(self._refresh_buttons)
             edit.currentTextChanged.connect(
-                lambda _text, e=edit, w=warning, c=confirm: self._refresh_storage_mount_warning(e, w, c)
+                lambda _text, e=edit, w=warning, c=confirm: self._on_storage_target_changed(e, w, c)
             )
             browse = QPushButton("...")
             browse.clicked.connect(lambda _=False, e=edit: self._browse_storage(e))
@@ -1099,6 +1109,15 @@ class ProvisionMainWindow(QMainWindow):
             self._storage_inputs[part] = edit
             self._storage_mount_warnings[part] = warning
             self._storage_mount_confirmations[part] = confirm
+            if previous_path:
+                idx = edit.findData(previous_path)
+                if idx < 0:
+                    edit.addItem(previous_path, previous_path)
+                    idx = edit.count() - 1
+                edit.setCurrentIndex(idx)
+            else:
+                edit.setCurrentIndex(-1)
+                edit.lineEdit().clear()
             self._refresh_storage_mount_warning(edit, warning, confirm)
         self._storage_layout.addStretch()
 
@@ -1148,6 +1167,10 @@ class ProvisionMainWindow(QMainWindow):
         confirm.setEnabled(mounted)
         self._refresh_buttons()
 
+    def _on_storage_target_changed(self, edit: QComboBox, warning: QLabel, confirm: QCheckBox) -> None:
+        confirm.setChecked(False)
+        self._refresh_storage_mount_warning(edit, warning, confirm)
+
     def _refresh_storage_controls(self) -> None:
         for part, edit in self._storage_inputs.items():
             self._refresh_storage_mount_warning(
@@ -1180,6 +1203,23 @@ class ProvisionMainWindow(QMainWindow):
             self.state.host_blkdev_map[part] = path
         self._refresh_summary()
         return True
+
+    def _flash_storage_error(self) -> str | None:
+        if self.state.prepared is None:
+            return "Flash preparation is incomplete."
+        for part in self.state.prepared.requested_host_blkdevs:
+            path = self.state.host_blkdev_map.get(part, "").strip()
+            if not path or not os.path.exists(path):
+                return f"The selected target for {part} is no longer available. Select it again."
+            confirmation = self._storage_mount_confirmations.get(part)
+            if host_storage.is_disk_or_child_mounted(path) and (
+                confirmation is None or not confirmation.isChecked()
+            ):
+                return (
+                    f"'{path}' is now mounted. Review the target and confirm the "
+                    "mounted-device warning before flashing."
+                )
+        return None
 
     def _populate_review(self) -> None:
         assert self.state.prepared is not None
