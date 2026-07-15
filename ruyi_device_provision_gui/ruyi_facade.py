@@ -429,8 +429,18 @@ def check_fastboot_devices() -> tuple[bool, str]:
     if proc.returncode != 0:
         return False, output or f"fastboot devices exited with code {proc.returncode}."
 
-    devices = [line for line in proc.stdout.splitlines() if line.strip()]
+    devices = parse_fastboot_devices(proc.stdout)
     return bool(devices), output or "No fastboot devices found."
+
+
+def parse_fastboot_devices(output: str) -> list[str]:
+    """Return valid ``fastboot devices`` records from stdout."""
+    devices: list[str] = []
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[1] == "fastboot":
+            devices.append(line.strip())
+    return devices
 
 
 def run_flash(

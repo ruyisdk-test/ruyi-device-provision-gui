@@ -24,9 +24,9 @@ from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
 from ruyi.config import GlobalConfig
 from ruyi.ruyipkg.composite_repo import CompositeRepo
-from ruyi.ruyipkg.pkg_manifest import PartitionMapDecl
+from ruyi.ruyipkg.pkg_manifest import PartitionKind, PartitionMapDecl
 
-from . import ruyi_facade
+from . import host_storage, ruyi_facade
 from .ruyi_facade import PreparedProvision
 
 
@@ -74,6 +74,17 @@ class RepoSyncWorker(_BaseWorker):
             self._fail(exc)
 
 
+class StorageDiscoveryWorker(_BaseWorker):
+    """Discover host disks without blocking the GUI event loop."""
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(host_storage.list_disks())
+        except BaseException as exc:  # noqa: BLE001
+            self._fail(exc)
+
+
 class FlashWorker(_BaseWorker):
     """Run every flashing strategy in priority order."""
 
@@ -87,11 +98,15 @@ class FlashWorker(_BaseWorker):
         config: GlobalConfig,
         prepared: PreparedProvision,
         host_blkdev_map: PartitionMapDecl,
+        host_blkdev_fingerprints: dict[str, str],
+        confirmed_mounted_parts: set[PartitionKind],
     ) -> None:
         super().__init__()
         self._config = config
         self._prepared = prepared
         self._host_blkdev_map = host_blkdev_map
+        self._host_blkdev_fingerprints = host_blkdev_fingerprints
+        self._confirmed_mounted_parts = confirmed_mounted_parts
 
     @Slot()
     def run(self) -> None:
@@ -130,6 +145,7 @@ class FlashWorker(_BaseWorker):
             plugin_api.RuyiHostAPI.call_subprocess_argv = original_call
 
     def _call_subprocess(self, argv: list[str]) -> int:
+        original_argv = argv
         argv = self._argv_with_gui_progress(argv)
         if argv and argv[0] == "sudo":
             response: dict[str, str | None] = {"password": None}
@@ -143,6 +159,7 @@ class FlashWorker(_BaseWorker):
         else:
             stdin_data = None
 
+        self._validate_dd_target(original_argv)
         self.process_output.emit("$ " + " ".join(argv))
         proc = subprocess.Popen(
             argv,
@@ -158,6 +175,46 @@ class FlashWorker(_BaseWorker):
         assert proc.stdout is not None
         self._emit_process_output(proc.stdout.fileno())
         return proc.wait()
+
+    def _validate_dd_target(self, argv: list[str]) -> None:
+        command = argv[1:] if argv and argv[0] == "sudo" else argv
+        if not command or command[0] != "dd":
+            return
+        output_paths = [
+            arg.removeprefix("of=")
+            for arg in command[1:]
+            if arg.startswith("of=")
+        ]
+        if len(output_paths) != 1 or not output_paths[0]:
+            raise RuntimeError(
+                "refusing to run dd without exactly one explicit output target"
+            )
+        output_path = output_paths[0]
+        part = next(
+            (
+                candidate
+                for candidate, path in self._host_blkdev_map.items()
+                if path == output_path
+            ),
+            None,
+        )
+        if part is None:
+            raise RuntimeError(
+                f"refusing to write to unreviewed dd target '{output_path}'"
+            )
+        expected = self._host_blkdev_fingerprints.get(part)
+        current = host_storage.device_fingerprint(output_path)
+        if expected is None or current is None or current != expected:
+            raise RuntimeError(
+                f"the dd target '{output_path}' changed after review; flashing was stopped"
+            )
+        if (
+            host_storage.is_disk_or_child_mounted(output_path)
+            and part not in self._confirmed_mounted_parts
+        ):
+            raise RuntimeError(
+                f"the dd target '{output_path}' became mounted after review; flashing was stopped"
+            )
 
     @staticmethod
     def _argv_with_gui_progress(argv: list[str]) -> list[str]:

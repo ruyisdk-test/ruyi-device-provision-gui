@@ -140,7 +140,7 @@ def test_flash_worker_does_not_add_dd_progress_on_macos(monkeypatch) -> None:
 def test_flash_worker_emits_carriage_return_output() -> None:
     from ruyi_device_provision_gui.workers import FlashWorker
 
-    worker = FlashWorker(None, None, {})  # type: ignore[arg-type]
+    worker = FlashWorker(None, None, {}, {}, set())  # type: ignore[arg-type]
     captured: list[str] = []
     worker.process_output.connect(captured.append)
 

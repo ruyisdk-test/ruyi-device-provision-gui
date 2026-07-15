@@ -121,7 +121,9 @@ the dialog are appended after the automatic disk list, in the order selected.
 
 On macOS, the automatic list is built from `diskutil list -plist` and
 `diskutil info -plist`, and whole disks are offered as raw disk paths such as
-`/dev/rdiskN`.
+`/dev/rdiskN`. Disk discovery runs in a worker thread so slow `diskutil`
+queries do not freeze the window. APFS physical stores are associated with
+their synthesized containers and mounted volumes.
 
 If the selected disk or one of its partitions is mounted, the GUI shows a red
 warning and requires an explicit confirmation checkbox before continuing. On
@@ -130,7 +132,8 @@ through LUKS, LVM, or RAID layers are not silently missed. The check uses
 ruyi's mount parser for `/proc/self/mounts`; macOS uses `diskutil` metadata.
 The selected target's device identity is recorded when Storage is committed
 and verified again immediately before flashing, so a replaced `/dev` path is
-not silently reused.
+not silently reused. The flash worker repeats this validation at every actual
+`dd` process launch, including after sudo confirmation and password entry.
 
 ## Flashing
 

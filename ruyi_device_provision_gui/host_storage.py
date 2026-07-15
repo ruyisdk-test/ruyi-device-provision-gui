@@ -10,6 +10,7 @@ import os
 import pathlib
 import platform
 import plistlib
+import re
 import stat
 import subprocess
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ class BlockDeviceChoice:
     path: str
     display_name: str
     mounted: bool = False
+    fingerprint: str | None = None
 
 
 def is_path_mounted_blkdev(path: str) -> bool:
@@ -49,7 +51,7 @@ def is_disk_or_child_mounted(path: str) -> bool:
     """Return whether ``path`` or a child partition below it is mounted."""
     system = platform.system()
     if system == "Darwin":
-        if not pathlib.Path(path).name.startswith("disk") and not pathlib.Path(path).name.startswith("rdisk"):
+        if _darwin_disk_identifier(path) is None:
             return is_path_mounted_blkdev(path)
         return _darwin_disk_or_child_mounted(path)
     if system != "Linux":
@@ -68,19 +70,12 @@ def device_fingerprint(path: str) -> str | None:
         return None
 
     if platform.system() == "Darwin":
-        disk = pathlib.Path(path).name.removeprefix("r")
-        if disk.startswith("disk"):
+        disk = _darwin_disk_identifier(path)
+        if disk is not None:
             info = _darwin_diskutil_plist("info", "-plist", disk)
             if info is None:
                 return None
-            values = (
-                info.get("DeviceIdentifier"),
-                info.get("MediaUUID"),
-                info.get("DiskUUID"),
-                info.get("TotalSize"),
-                info.get("MediaName"),
-            )
-            return "darwin:" + ":".join(str(value or "") for value in values)
+            return _darwin_fingerprint_from_info(info)
 
     if stat.S_ISBLK(path_stat.st_mode) or stat.S_ISCHR(path_stat.st_mode):
         parts = [
@@ -92,19 +87,28 @@ def device_fingerprint(path: str) -> str | None:
             sysfs_node = _linux_sysfs_node(path_stat.st_rdev)
             if sysfs_node is None:
                 return None
+            identity_node = (
+                sysfs_node.parent
+                if (sysfs_node / "partition").exists()
+                else sysfs_node
+            )
             parts.extend(
                 [
                     str(sysfs_node),
+                    str(identity_node),
                     _read_first_sysfs_text(
-                        sysfs_node / "wwid",
-                        sysfs_node / "device" / "wwid",
+                        identity_node / "wwid",
+                        identity_node / "device" / "wwid",
+                        identity_node / "dm" / "uuid",
+                        identity_node / "md" / "uuid",
                     ),
                     _read_first_sysfs_text(
-                        sysfs_node / "device" / "serial",
-                        sysfs_node / "serial",
+                        identity_node / "device" / "serial",
+                        identity_node / "serial",
                     ),
-                    _read_sysfs_text(sysfs_node / "diskseq") or "",
+                    _read_sysfs_text(identity_node / "diskseq") or "",
                     _read_sysfs_text(sysfs_node / "size") or "",
+                    _read_sysfs_text(sysfs_node / "start") or "",
                 ]
             )
         return "block:" + ":".join(parts)
@@ -123,6 +127,20 @@ def list_disks() -> list[BlockDeviceChoice]:
     if system == "Linux":
         return _linux_list_disks()
     return []
+
+
+def is_native_disk_path(path: str) -> bool:
+    """Return whether ``path`` names a platform block/raw disk device."""
+    if platform.system() == "Darwin":
+        return _darwin_disk_identifier(path) is not None
+    if platform.system() == "Linux":
+        return _path_block_device_id(path) is not None
+    return False
+
+
+def validation_is_slow() -> bool:
+    """Return whether full target validation should run outside the UI thread."""
+    return platform.system() == "Darwin"
 
 
 def storage_platform_hint() -> str:
@@ -185,6 +203,7 @@ def _linux_list_disks() -> list[BlockDeviceChoice]:
                 path=dev_path,
                 display_name=" - ".join(parts),
                 mounted=mounted,
+                fingerprint=device_fingerprint(dev_path),
             )
         )
     return _sort_disk_choices(choices)
@@ -227,18 +246,58 @@ def _darwin_list_disks() -> list[BlockDeviceChoice]:
                 path=path,
                 display_name=" - ".join(parts),
                 mounted=mounted,
+                fingerprint=_darwin_fingerprint_from_info(info),
             )
         )
     return _sort_disk_choices(choices)
 
 
+def _darwin_fingerprint_from_info(info: dict[str, Any]) -> str | None:
+    stable_ids = tuple(
+        str(info.get(key) or "")
+        for key in (
+            "MediaUUID",
+            "DiskUUID",
+            "VolumeUUID",
+            "APFSContainerUUID",
+            "APFSVolumeUUID",
+        )
+    )
+    if not any(stable_ids):
+        return None
+    values = (
+        info.get("DeviceIdentifier"),
+        *stable_ids,
+        info.get("TotalSize") or info.get("Size"),
+        info.get("MediaName"),
+    )
+    return "darwin:" + ":".join(str(value or "") for value in values)
+
+
 def _darwin_disk_or_child_mounted(path: str) -> bool:
-    disk = pathlib.Path(path).name.removeprefix("r")
+    disk = _darwin_disk_identifier(path)
+    if disk is None:
+        return is_path_mounted_blkdev(path)
     payload = _darwin_diskutil_plist("list", "-plist", disk)
     if payload is None:
         return True
     identifiers = _darwin_device_identifiers(payload)
     identifiers.add(disk)
+    apfs_payload = _darwin_diskutil_plist("apfs", "list", "-plist")
+    if apfs_payload is None:
+        if _darwin_payload_mentions_apfs(payload):
+            return True
+    else:
+        for container in apfs_payload.get("Containers", []):
+            if not isinstance(container, dict):
+                continue
+            physical_stores = _darwin_device_identifiers(
+                container.get("PhysicalStores", [])
+            )
+            if physical_stores & identifiers:
+                if _darwin_payload_has_mountpoint(container):
+                    return True
+                identifiers.update(_darwin_device_identifiers(container))
     topology_unknown = False
     for identifier in identifiers:
         info = _darwin_diskutil_plist("info", "-plist", identifier)
@@ -247,6 +306,39 @@ def _darwin_disk_or_child_mounted(path: str) -> bool:
         elif info.get("MountPoint"):
             return True
     return topology_unknown
+
+
+def _darwin_disk_identifier(path: str) -> str | None:
+    try:
+        path_stat = os.stat(path)
+    except OSError:
+        return None
+    if not (stat.S_ISBLK(path_stat.st_mode) or stat.S_ISCHR(path_stat.st_mode)):
+        return None
+    name = pathlib.Path(path).name
+    if re.fullmatch(r"r?disk\d+(?:s\d+)*", name) is None:
+        return None
+    return name.removeprefix("r")
+
+
+def _darwin_payload_mentions_apfs(value: object) -> bool:
+    if isinstance(value, str):
+        return "apfs" in value.lower()
+    if isinstance(value, dict):
+        return any(_darwin_payload_mentions_apfs(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_darwin_payload_mentions_apfs(child) for child in value)
+    return False
+
+
+def _darwin_payload_has_mountpoint(value: object) -> bool:
+    if isinstance(value, dict):
+        if value.get("MountPoint"):
+            return True
+        return any(_darwin_payload_has_mountpoint(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_darwin_payload_has_mountpoint(child) for child in value)
+    return False
 
 
 def _darwin_device_identifiers(value: object) -> set[str]:
@@ -357,7 +449,39 @@ def _mounted_block_device_ids() -> set[int]:
             device_ids.add(mount.source_path.stat().st_rdev)
         except OSError:
             continue
+    for group in _btrfs_device_groups():
+        if group & device_ids:
+            device_ids.update(group)
     return device_ids
+
+
+def _btrfs_device_groups(
+    root: pathlib.Path = pathlib.Path("/sys/fs/btrfs"),
+) -> list[set[int]]:
+    groups: list[set[int]] = []
+    try:
+        filesystems = list(root.iterdir())
+    except OSError:
+        return groups
+    for filesystem in filesystems:
+        devices_root = filesystem / "devices"
+        try:
+            device_dirs = list(devices_root.iterdir())
+        except OSError:
+            continue
+        device_ids: set[int] = set()
+        for device_dir in device_dirs:
+            raw_dev = _read_sysfs_text(device_dir / "dev")
+            if raw_dev is None:
+                continue
+            try:
+                major, minor = (int(part) for part in raw_dev.split(":", 1))
+            except ValueError:
+                continue
+            device_ids.add(os.makedev(major, minor))
+        if device_ids:
+            groups.append(device_ids)
+    return groups
 
 
 def _read_first_sysfs_text(*paths: pathlib.Path) -> str:

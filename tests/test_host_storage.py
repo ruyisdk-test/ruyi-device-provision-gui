@@ -119,6 +119,81 @@ def test_darwin_disks_sort_unmounted_before_mounted(monkeypatch) -> None:
     assert [disk.mounted for disk in disks] == [False, True]
 
 
+def test_darwin_apfs_volume_marks_physical_store_mounted(monkeypatch) -> None:
+    def fake_diskutil(*args: str):
+        if args == ("list", "-plist", "disk0"):
+            return {
+                "AllDisksAndPartitions": [
+                    {
+                        "DeviceIdentifier": "disk0",
+                        "Partitions": [
+                            {
+                                "DeviceIdentifier": "disk0s2",
+                                "Content": "Apple_APFS",
+                            }
+                        ],
+                    }
+                ]
+            }
+        if args == ("apfs", "list", "-plist"):
+            return {
+                "Containers": [
+                    {
+                        "PhysicalStores": [
+                            {"DeviceIdentifier": "disk0s2"}
+                        ],
+                        "Volumes": [
+                            {
+                                "DeviceIdentifier": "disk3s1",
+                                "MountPoint": "/",
+                            }
+                        ],
+                    }
+                ]
+            }
+        return {"DeviceIdentifier": args[-1], "MountPoint": None}
+
+    monkeypatch.setattr(host_storage, "_darwin_disk_identifier", lambda _path: "disk0")
+    monkeypatch.setattr(host_storage, "_darwin_diskutil_plist", fake_diskutil)
+
+    assert host_storage._darwin_disk_or_child_mounted("/dev/rdisk0")
+
+
+def test_darwin_file_named_disk_is_not_treated_as_device(monkeypatch, tmp_path: Path) -> None:
+    image = tmp_path / "disk.img"
+    image.touch()
+    monkeypatch.setattr(host_storage.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(host_storage, "is_path_mounted_blkdev", lambda _path: False)
+
+    assert not host_storage.is_native_disk_path(str(image))
+    assert not host_storage.is_disk_or_child_mounted(str(image))
+    assert host_storage.device_fingerprint(str(image)).startswith("file:")
+
+
+def test_darwin_fingerprint_requires_stable_media_id() -> None:
+    assert (
+        host_storage._darwin_fingerprint_from_info(
+            {
+                "DeviceIdentifier": "disk4",
+                "Size": 64_000_000_000,
+                "MediaName": "Generic STORAGE DEVICE Media",
+            }
+        )
+        is None
+    )
+    fingerprint = host_storage._darwin_fingerprint_from_info(
+        {
+            "DeviceIdentifier": "disk4",
+            "MediaUUID": "stable-media-id",
+            "Size": 64_000_000_000,
+            "MediaName": "Generic STORAGE DEVICE Media",
+        }
+    )
+    assert fingerprint is not None
+    assert "stable-media-id" in fingerprint
+    assert "64000000000" in fingerprint
+
+
 def test_darwin_diskutil_rejects_invalid_plist(monkeypatch) -> None:
     monkeypatch.setattr(
         host_storage.subprocess,
@@ -143,3 +218,17 @@ def test_storage_platform_hints(monkeypatch) -> None:
 
 def test_read_sysfs_text_handles_missing_path(tmp_path: Path) -> None:
     assert host_storage._read_sysfs_text(tmp_path / "missing") is None
+
+
+def test_btrfs_groups_expand_mounted_member(monkeypatch, tmp_path: Path) -> None:
+    filesystem = tmp_path / "filesystem" / "devices"
+    first = filesystem / "1"
+    second = filesystem / "2"
+    first.mkdir(parents=True)
+    second.mkdir()
+    (first / "dev").write_text("8:1")
+    (second / "dev").write_text("8:17")
+
+    groups = host_storage._btrfs_device_groups(tmp_path)
+
+    assert groups == [{os.makedev(8, 1), os.makedev(8, 17)}]

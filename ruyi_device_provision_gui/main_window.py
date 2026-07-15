@@ -40,9 +40,17 @@ from PySide6.QtWidgets import (
 from . import host_storage, ruyi_facade
 from .qt_logger import LogEmitter, QtRuyiLogger
 from .state import WizardState
-from .workers import FlashWorker, RepoInitWorker, RepoSyncWorker, run_worker_in_thread
+from .workers import (
+    FlashWorker,
+    RepoInitWorker,
+    RepoSyncWorker,
+    StorageDiscoveryWorker,
+    run_worker_in_thread,
+)
 
 FASTBOOT_PROGRAM = "fastboot"
+STORAGE_MOUNTED_ROLE = Qt.ItemDataRole.UserRole.value + 1
+STORAGE_FINGERPRINT_ROLE = Qt.ItemDataRole.UserRole.value + 2
 
 
 class ProvisionMainWindow(QMainWindow):
@@ -492,6 +500,12 @@ class ProvisionMainWindow(QMainWindow):
             self.state.config,
             self.state.prepared,
             self.state.host_blkdev_map,
+            self.state.host_blkdev_fingerprints,
+            {
+                part
+                for part, confirmation in self._storage_mount_confirmations.items()
+                if confirmation.isChecked()
+            },
         )
         self._worker.finished.connect(self._on_flash_finished)
         self._worker.failed.connect(self._on_worker_failed)
@@ -553,11 +567,7 @@ class ProvisionMainWindow(QMainWindow):
         self._on_fastboot_stderr(process)
         stdout = self._fastboot_output.strip()
         stderr = self._fastboot_error_output.strip()
-        devices = [
-            line.strip()
-            for line in stdout.splitlines()
-            if len(line.split()) >= 2 and line.split()[1] == "fastboot"
-        ]
+        devices = ruyi_facade.parse_fastboot_devices(stdout)
         if self._fastboot_timed_out:
             self._complete_fastboot_check(process, False, "fastboot devices timed out.")
         elif ret != 0:
@@ -1300,7 +1310,10 @@ class ProvisionMainWindow(QMainWindow):
         else:
             self._packages_list.addItem("No packages. The selected image only contains a post-install message.")
 
-    def _populate_storage(self) -> None:
+    def _populate_storage(
+        self,
+        disks: list[host_storage.BlockDeviceChoice] | None = None,
+    ) -> None:
         assert self.state.prepared is not None
         while self._storage_layout.count():
             item = self._storage_layout.takeAt(0)
@@ -1311,7 +1324,9 @@ class ProvisionMainWindow(QMainWindow):
         self._storage_mount_warnings.clear()
         self._storage_mount_confirmations.clear()
         self._storage_error.setText("")
-        disks = host_storage.list_disks()
+        discover_async = disks is None and host_storage.validation_is_slow()
+        if disks is None:
+            disks = [] if discover_async else host_storage.list_disks()
         for part in self.state.prepared.requested_host_blkdevs:
             previous_path = self.state.host_blkdev_map.get(part)
             desc = ruyi_facade.part_description(part)
@@ -1323,6 +1338,13 @@ class ProvisionMainWindow(QMainWindow):
             edit.lineEdit().setPlaceholderText("/dev/...")
             for disk in disks:
                 edit.addItem(disk.display_name, disk.path)
+                index = edit.count() - 1
+                edit.setItemData(index, disk.mounted, STORAGE_MOUNTED_ROLE)
+                edit.setItemData(
+                    index,
+                    disk.fingerprint,
+                    STORAGE_FINGERPRINT_ROLE,
+                )
             warning = QLabel("The selected disk or one of its partitions is mounted.")
             warning.setStyleSheet("color: #c01c28;")
             warning.setVisible(False)
@@ -1364,6 +1386,32 @@ class ProvisionMainWindow(QMainWindow):
                 edit.lineEdit().clear()
             self._refresh_storage_mount_warning(edit, warning, confirm)
         self._storage_layout.addStretch()
+        if discover_async:
+            self._storage_box.setEnabled(False)
+            self._storage_error.setText("Detecting disks...")
+            self._start_storage_discovery()
+        else:
+            self._storage_box.setEnabled(True)
+
+    def _start_storage_discovery(self) -> None:
+        self._worker = StorageDiscoveryWorker()
+        self._worker.finished.connect(self._on_storage_disks_ready)
+        self._worker.failed.connect(self._on_storage_discovery_failed)
+        self._thread = run_worker_in_thread(self._worker)
+        self._refresh_buttons()
+
+    def _on_storage_disks_ready(self, disks: object) -> None:
+        self._cleanup_thread()
+        self._populate_storage(list(disks))
+        self._refresh_buttons()
+
+    def _on_storage_discovery_failed(self, message: str) -> None:
+        self._cleanup_thread()
+        self._storage_box.setEnabled(True)
+        self._storage_error.setText(
+            f"Automatic disk detection failed: {message}. Use the file chooser to select a target."
+        )
+        self._refresh_buttons()
 
     def _browse_storage(self, edit: QComboBox) -> None:
         dialog = QFileDialog(
@@ -1403,7 +1451,21 @@ class ProvisionMainWindow(QMainWindow):
 
     def _refresh_storage_mount_warning(self, edit: QComboBox, warning: QLabel, confirm: QCheckBox) -> None:
         path = self._storage_path(edit)
-        mounted = bool(path and os.path.exists(path) and host_storage.is_disk_or_child_mounted(path))
+        mounted_data = self._storage_item_data(edit, STORAGE_MOUNTED_ROLE)
+        if mounted_data is not None:
+            mounted = bool(mounted_data)
+        elif path and os.path.exists(path) and host_storage.is_native_disk_path(path):
+            mounted = (
+                True
+                if host_storage.validation_is_slow()
+                else host_storage.is_disk_or_child_mounted(path)
+            )
+        else:
+            mounted = bool(
+                path
+                and os.path.exists(path)
+                and host_storage.is_disk_or_child_mounted(path)
+            )
         if not mounted:
             confirm.setChecked(False)
         warning.setVisible(mounted)
@@ -1414,6 +1476,12 @@ class ProvisionMainWindow(QMainWindow):
     def _on_storage_target_changed(self, edit: QComboBox, warning: QLabel, confirm: QCheckBox) -> None:
         confirm.setChecked(False)
         self._refresh_storage_mount_warning(edit, warning, confirm)
+
+    def _storage_item_data(self, edit: QComboBox, role: int) -> object | None:
+        index = edit.currentIndex()
+        if index < 0 or edit.currentText() != edit.itemText(index):
+            return None
+        return edit.itemData(index, role)
 
     def _refresh_storage_controls(self) -> None:
         for part, edit in self._storage_inputs.items():
@@ -1443,12 +1511,23 @@ class ProvisionMainWindow(QMainWindow):
             if not os.path.exists(path):
                 self._storage_error.setText(f"'{path}' does not exist.")
                 return False
-            if host_storage.is_disk_or_child_mounted(path) and not self._storage_mount_confirmations[part].isChecked():
+            if (
+                self._storage_mount_warnings[part].isVisible()
+                and not self._storage_mount_confirmations[part].isChecked()
+            ):
                 self._storage_error.setText(
                     f"'{path}' is mounted. Confirm the mounted-device warning before continuing."
                 )
                 return False
-            fingerprint = host_storage.device_fingerprint(path)
+            fingerprint_data = self._storage_item_data(
+                edit,
+                STORAGE_FINGERPRINT_ROLE,
+            )
+            fingerprint = (
+                str(fingerprint_data)
+                if fingerprint_data
+                else host_storage.device_fingerprint(path)
+            )
             if fingerprint is None:
                 self._storage_error.setText(
                     f"Could not verify the identity of '{path}'. Select the target again."
@@ -1469,6 +1548,10 @@ class ProvisionMainWindow(QMainWindow):
             if not path or not os.path.exists(path):
                 return f"The selected target for {part} is no longer available. Select it again."
             expected_fingerprint = self.state.host_blkdev_fingerprints.get(part)
+            if host_storage.validation_is_slow():
+                if expected_fingerprint is None:
+                    return f"The identity of '{path}' was not recorded. Select it again."
+                continue
             current_fingerprint = host_storage.device_fingerprint(path)
             if (
                 expected_fingerprint is None

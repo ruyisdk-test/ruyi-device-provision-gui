@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -9,10 +10,11 @@ from PySide6.QtWidgets import QApplication
 from ruyi.config import GlobalConfig
 from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-from ruyi_device_provision_gui import host_storage, ruyi_facade
+from ruyi_device_provision_gui import host_storage, ruyi_facade, workers
 from ruyi_device_provision_gui import main_window
 from ruyi_device_provision_gui.main_window import ProvisionMainWindow
 from ruyi_device_provision_gui.qt_logger import LogEmitter, QtRuyiLogger
+from ruyi_device_provision_gui.workers import FlashWorker
 
 
 @pytest.fixture
@@ -183,6 +185,24 @@ def test_fastboot_check_ignores_stderr_only_output(
     assert "No fastboot devices found." in window._fastboot_status.text()
 
 
+def test_fastboot_check_rejects_malformed_stdout(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+    tmp_path,
+) -> None:
+    fastboot = tmp_path / "fastboot"
+    fastboot.write_text("#!/bin/sh\nprintf 'warning fastboot unavailable\\n'\n")
+    fastboot.chmod(0o755)
+    monkeypatch.setattr(main_window, "FASTBOOT_PROGRAM", os.fspath(fastboot))
+
+    window._check_fastboot_devices()
+
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
+    assert not window._fastboot_ok
+    assert "No fastboot devices found." in window._fastboot_status.text()
+
+
 def test_flash_rejects_replaced_target(
     window: ProvisionMainWindow,
     monkeypatch,
@@ -223,6 +243,85 @@ def test_done_back_returns_to_fresh_review(window: ProvisionMainWindow, monkeypa
     assert window._current_step == window.STEP_REVIEW
     assert not window._proceed_cb.isChecked()
     assert not window._fastboot_ok
+
+
+def test_flash_worker_revalidates_dd_target_before_spawn(monkeypatch, tmp_path) -> None:
+    target = tmp_path / "target.img"
+    target.touch()
+    worker = FlashWorker(
+        None,
+        None,
+        {"disk": os.fspath(target)},
+        {"disk": "reviewed-device"},
+        set(),
+    )  # type: ignore[arg-type]
+    monkeypatch.setattr(host_storage, "device_fingerprint", lambda _path: "replacement")
+    spawned: list[bool] = []
+    monkeypatch.setattr(
+        workers.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: spawned.append(True),
+    )
+
+    with pytest.raises(RuntimeError, match="changed after review"):
+        worker._call_subprocess(["dd", "if=image", f"of={target}"])
+
+    assert not spawned
+
+
+def test_flash_worker_rejects_multiple_dd_outputs(monkeypatch, tmp_path) -> None:
+    target = tmp_path / "target.img"
+    other = tmp_path / "other.img"
+    target.touch()
+    other.touch()
+    worker = FlashWorker(
+        None,
+        None,
+        {"disk": os.fspath(target)},
+        {"disk": "reviewed-device"},
+        set(),
+    )  # type: ignore[arg-type]
+    monkeypatch.setattr(host_storage, "device_fingerprint", lambda _path: "reviewed-device")
+
+    with pytest.raises(RuntimeError, match="exactly one"):
+        worker._call_subprocess(
+            ["dd", "if=image", f"of={target}", f"of={other}"]
+        )
+
+
+def test_slow_storage_discovery_does_not_block_ui(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+) -> None:
+    window.state.prepared = SimpleNamespace(
+        requested_host_blkdevs=["disk"],
+        needed_cmds=set(),
+    )
+    monkeypatch.setattr(ruyi_facade, "part_description", lambda _part: "Whole disk")
+    monkeypatch.setattr(host_storage, "validation_is_slow", lambda: True)
+
+    def slow_discovery():
+        time.sleep(0.1)
+        return [
+            host_storage.BlockDeviceChoice(
+                path="/dev/rdisk2",
+                display_name="/dev/rdisk2 - 32.0 GiB",
+                fingerprint="darwin:disk2",
+            )
+        ]
+
+    monkeypatch.setattr(host_storage, "list_disks", slow_discovery)
+    event_loop_ran: list[bool] = []
+
+    window._populate_storage()
+    QTimer.singleShot(0, lambda: event_loop_ran.append(True))
+
+    qtbot.waitUntil(lambda: bool(event_loop_ran), timeout=500)
+    assert window._thread is not None
+    qtbot.waitUntil(lambda: window._thread is None, timeout=2000)
+    assert window._storage_box.isEnabled()
+    assert window._storage_inputs["disk"].count() == 1
 def test_storage_controls_have_accessible_labels(
     window: ProvisionMainWindow,
     monkeypatch,
