@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QProcess, QTimer
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 from ruyi.config import GlobalConfig
 from ruyi.utils.global_mode import EnvGlobalModeProvider
@@ -29,6 +30,66 @@ def window(qtbot) -> ProvisionMainWindow:
     return result
 
 
+def _contrast_ratio(foreground: str, background: str) -> float:
+    def luminance(color_name: str) -> float:
+        color = QColor(color_name)
+        channels = [color.redF(), color.greenF(), color.blueF()]
+        linear = [
+            channel / 12.92
+            if channel <= 0.04045
+            else ((channel + 0.055) / 1.055) ** 2.4
+            for channel in channels
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    first = luminance(foreground)
+    second = luminance(background)
+    lighter, darker = max(first, second), min(first, second)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _test_palette(*, dark: bool) -> QPalette:
+    palette = QPalette()
+    values = (
+        {
+            QPalette.ColorRole.Window: "#202124",
+            QPalette.ColorRole.WindowText: "#f1f3f4",
+            QPalette.ColorRole.Base: "#121212",
+            QPalette.ColorRole.Text: "#f1f3f4",
+            QPalette.ColorRole.Button: "#303134",
+            QPalette.ColorRole.ButtonText: "#f1f3f4",
+            QPalette.ColorRole.Mid: "#5f6368",
+            QPalette.ColorRole.Highlight: "#8ab4f8",
+            QPalette.ColorRole.HighlightedText: "#202124",
+        }
+        if dark
+        else {
+            QPalette.ColorRole.Window: "#f8f9fa",
+            QPalette.ColorRole.WindowText: "#202124",
+            QPalette.ColorRole.Base: "#ffffff",
+            QPalette.ColorRole.Text: "#202124",
+            QPalette.ColorRole.Button: "#f1f3f4",
+            QPalette.ColorRole.ButtonText: "#202124",
+            QPalette.ColorRole.Mid: "#bdc1c6",
+            QPalette.ColorRole.Highlight: "#1967d2",
+            QPalette.ColorRole.HighlightedText: "#ffffff",
+        }
+    )
+    for role, value in values.items():
+        palette.setColor(role, QColor(value))
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.Text,
+        QColor("#9aa0a6" if dark else "#80868b"),
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.Button,
+        QColor("#3c4043" if dark else "#e8eaed"),
+    )
+    return palette
+
+
 def test_sidebar_cannot_skip_forward_steps(window: ProvisionMainWindow) -> None:
     window._set_step(window.STEP_PACKAGES)
 
@@ -36,6 +97,39 @@ def test_sidebar_cannot_skip_forward_steps(window: ProvisionMainWindow) -> None:
 
     assert window._current_step == window.STEP_PACKAGES
     assert window._steps.currentRow() == window.STEP_PACKAGES
+
+
+@pytest.mark.parametrize("dark", [False, True])
+def test_theme_uses_application_palette(
+    window: ProvisionMainWindow,
+    qtbot,
+    dark: bool,
+) -> None:
+    app = QApplication.instance()
+    assert app is not None
+    original = app.palette()
+    try:
+        app.setPalette(_test_palette(dark=dark))
+        expected_window = "#202124" if dark else "#f8f9fa"
+        qtbot.waitUntil(
+            lambda: expected_window in window.styleSheet(),
+            timeout=1000,
+        )
+        colors = window._theme_colors()
+        stylesheet = window.styleSheet()
+
+        assert colors["window"] in stylesheet
+        assert colors["window_text"] in stylesheet
+        assert colors["base"] in stylesheet
+        assert colors["highlight"] in stylesheet
+        assert colors["disabled_text"] in stylesheet
+        assert _contrast_ratio(colors["window_text"], colors["window"]) >= 4.5
+        assert _contrast_ratio(colors["text"], colors["base"]) >= 4.5
+        assert _contrast_ratio(colors["success"], colors["window"]) >= 4.5
+        assert _contrast_ratio(colors["warning"], colors["window"]) >= 4.5
+        assert _contrast_ratio(colors["error"], colors["window"]) >= 4.5
+    finally:
+        app.setPalette(original)
 
 
 def test_storage_requires_explicit_target(

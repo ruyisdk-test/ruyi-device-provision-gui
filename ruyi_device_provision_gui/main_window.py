@@ -14,8 +14,10 @@ import signal
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QProcess, QProcessEnvironment, QTimer, Qt
+from PySide6.QtCore import QDir, QEvent, QProcess, QProcessEnvironment, QTimer, Qt
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -111,6 +113,7 @@ class ProvisionMainWindow(QMainWindow):
         self._download_cancelled = False
         self._download_recoverable = False
         self._flash_recoverable = False
+        self._applying_styles = False
         self._current_step = self.STEP_WELCOME
         self._download_ok = False
         self._versions_visited = False
@@ -244,7 +247,7 @@ class ProvisionMainWindow(QMainWindow):
         self._device_list.itemDoubleClicked.connect(self._activate_current_step)
         self._device_status = QLabel("")
         self._device_status.setWordWrap(True)
-        self._device_status.setStyleSheet("color: #b15a00;")
+        self._device_status.setProperty("statusKind", "warning")
         self._update_repo_btn = QPushButton("Update metadata")
         self._update_repo_btn.clicked.connect(self._start_repo_sync)
         self._add_page(
@@ -326,7 +329,7 @@ class ProvisionMainWindow(QMainWindow):
         self._storage_layout.setContentsMargins(0, 0, 0, 0)
         self._storage_error = QLabel("")
         self._storage_error.setWordWrap(True)
-        self._storage_error.setStyleSheet("color: #b15a00;")
+        self._storage_error.setProperty("statusKind", "warning")
         self._add_page(
             "Provide storage paths",
             [
@@ -340,7 +343,7 @@ class ProvisionMainWindow(QMainWindow):
         self._review_steps.setReadOnly(True)
         self._review_missing = QLabel("")
         self._review_missing.setWordWrap(True)
-        self._review_missing.setStyleSheet("color: #c01c28;")
+        self._review_missing.setProperty("statusKind", "error")
         self._fastboot_ok = False
         self._fastboot_status = QLabel("")
         self._fastboot_status.setWordWrap(True)
@@ -386,7 +389,7 @@ class ProvisionMainWindow(QMainWindow):
         self._postinst_label = QLabel("")
         self._postinst_label.setWordWrap(True)
         self._postinst_label.setFrameShape(QFrame.Shape.Box)
-        self._postinst_label.setStyleSheet("padding: 8px;")
+        self._postinst_label.setObjectName("postInstallMessage")
         self._add_page("Done", [self._done_label, self._postinst_label])
 
     def _add_page(self, title: str, widgets: list[QWidget]) -> None:
@@ -414,33 +417,131 @@ class ProvisionMainWindow(QMainWindow):
         return view
 
     def _apply_styles(self) -> None:
-        self.setStyleSheet(
-            """
-            QMainWindow { background: #f4f5f7; color: #202124; }
-            QListWidget#stepList {
-                background: #ffffff;
-                border: 1px solid #d8dce2;
+        if self._applying_styles:
+            return
+        self._applying_styles = True
+        colors = self._theme_colors()
+        try:
+            self.setStyleSheet(
+                f"""
+            QMainWindow {{ background: {colors['window']}; color: {colors['window_text']}; }}
+            QWidget {{ color: {colors['window_text']}; }}
+            QListWidget#stepList {{
+                background: {colors['base']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
                 border-radius: 6px;
                 padding: 4px;
-            }
-            QListWidget#stepList::item { min-height: 34px; padding: 3px 7px; }
-            QListWidget#stepList::item:selected { background: #dcefe5; color: #145c3b; }
-            QListWidget#stepList::item:disabled { color: #90969f; }
-            QGroupBox {
-                background: #ffffff;
-                border: 1px solid #d8dce2;
+            }}
+            QListWidget#stepList::item {{ min-height: 34px; padding: 3px 7px; }}
+            QListWidget#stepList::item:selected {{
+                background: {colors['highlight']};
+                color: {colors['highlighted_text']};
+            }}
+            QListWidget#stepList::item:disabled {{ color: {colors['disabled_text']}; }}
+            QGroupBox {{
+                background: {colors['base']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
                 border-radius: 6px;
                 margin-top: 9px;
                 padding: 8px;
-            }
-            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
-            QLabel#pageTitle { font-size: 17px; color: #202124; }
-            QPushButton { min-height: 30px; padding: 2px 10px; }
-            QPushButton#primaryButton { background: #176b45; color: white; border: 0; border-radius: 4px; }
-            QPushButton#primaryButton:disabled { background: #aeb7b2; }
-            QPlainTextEdit { background: #161a20; color: #e7eaf0; border: 1px solid #3a4049; }
+            }}
+            QGroupBox::title {{ subcontrol-origin: margin; left: 8px; padding: 0 4px; }}
+            QGroupBox QLabel {{ color: {colors['text']}; }}
+            QLabel#pageTitle {{ font-size: 17px; color: {colors['window_text']}; }}
+            QLabel#postInstallMessage {{
+                padding: 8px;
+                background: {colors['base']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
+            }}
+            QLabel[statusKind="success"] {{ color: {colors['success']}; font-weight: 600; }}
+            QLabel[statusKind="warning"] {{ color: {colors['warning']}; font-weight: 600; }}
+            QLabel[statusKind="error"] {{ color: {colors['error']}; font-weight: 600; }}
+            QPushButton {{
+                min-height: 30px;
+                padding: 2px 10px;
+                background: {colors['button']};
+                color: {colors['button_text']};
+                border: 1px solid {colors['border']};
+                border-radius: 4px;
+            }}
+            QPushButton#primaryButton {{
+                background: {colors['highlight']};
+                color: {colors['highlighted_text']};
+                border-color: {colors['highlight']};
+            }}
+            QPushButton:disabled {{
+                background: {colors['disabled_button']};
+                color: {colors['disabled_text']};
+            }}
+            QPushButton#primaryButton:disabled {{
+                background: {colors['disabled_button']};
+                color: {colors['disabled_text']};
+                border-color: {colors['border']};
+            }}
+            QLineEdit, QComboBox, QListWidget, QPlainTextEdit {{
+                background: {colors['base']};
+                color: {colors['text']};
+                selection-background-color: {colors['highlight']};
+                selection-color: {colors['highlighted_text']};
+                border: 1px solid {colors['border']};
+            }}
+            QLineEdit:disabled, QComboBox:disabled, QListWidget:disabled,
+            QPlainTextEdit:disabled, QCheckBox:disabled {{
+                background: {colors['disabled_button']};
+                color: {colors['disabled_text']};
+            }}
             """
-        )
+            )
+        finally:
+            self._applying_styles = False
+
+    def _theme_colors(self) -> dict[str, str]:
+        app = QApplication.instance()
+        palette = app.palette() if app is not None else self.palette()
+
+        def color(role: QPalette.ColorRole) -> str:
+            return palette.color(role).name()
+
+        is_dark = palette.color(QPalette.ColorRole.Window).lightness() < 128
+        return {
+            "window": color(QPalette.ColorRole.Window),
+            "window_text": color(QPalette.ColorRole.WindowText),
+            "base": color(QPalette.ColorRole.Base),
+            "text": color(QPalette.ColorRole.Text),
+            "button": color(QPalette.ColorRole.Button),
+            "button_text": color(QPalette.ColorRole.ButtonText),
+            "border": color(QPalette.ColorRole.Mid),
+            "highlight": color(QPalette.ColorRole.Highlight),
+            "highlighted_text": color(QPalette.ColorRole.HighlightedText),
+            "disabled_button": palette.color(
+                QPalette.ColorGroup.Disabled,
+                QPalette.ColorRole.Button,
+            ).name(),
+            "disabled_text": palette.color(
+                QPalette.ColorGroup.Disabled,
+                QPalette.ColorRole.Text,
+            ).name(),
+            "success": "#7ee787" if is_dark else "#1a7f37",
+            "warning": "#f2cc60" if is_dark else "#9a6700",
+            "error": "#ff7b72" if is_dark else "#cf222e",
+        }
+
+    def changeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().changeEvent(event)
+        if event.type() in {
+            QEvent.Type.ApplicationPaletteChange,
+            QEvent.Type.PaletteChange,
+        } and hasattr(self, "_steps"):
+            self._apply_styles()
+
+    def _set_status_kind(self, label: QLabel, kind: str | None) -> None:
+        label.setProperty("statusKind", kind or "")
+        label.style().unpolish(label)
+        label.style().polish(label)
+        label.update()
 
     # -------------------------------------------------------------- actions
 
@@ -521,7 +622,7 @@ class ProvisionMainWindow(QMainWindow):
         self._fastboot_output = ""
         self._fastboot_error_output = ""
         self._fastboot_timed_out = False
-        self._fastboot_status.setStyleSheet("")
+        self._set_status_kind(self._fastboot_status, None)
         self._fastboot_status.setText("Checking fastboot devices...")
         self._check_fastboot_btn.setEnabled(False)
 
@@ -623,9 +724,7 @@ class ProvisionMainWindow(QMainWindow):
         self._fastboot_process = None
         process.deleteLater()
         self._fastboot_ok = ok
-        self._fastboot_status.setStyleSheet(
-            "color: #1a7f37;" if ok else "color: #c01c28;"
-        )
+        self._set_status_kind(self._fastboot_status, "success" if ok else "error")
         self._fastboot_status.setText(message)
         self._check_fastboot_btn.setEnabled(True)
         self._refresh_buttons()
@@ -1346,7 +1445,7 @@ class ProvisionMainWindow(QMainWindow):
                     STORAGE_FINGERPRINT_ROLE,
                 )
             warning = QLabel("The selected disk or one of its partitions is mounted.")
-            warning.setStyleSheet("color: #c01c28;")
+            warning.setProperty("statusKind", "error")
             warning.setVisible(False)
             confirm = QCheckBox("I understand flashing may overwrite mounted data.")
             confirm.setVisible(False)
@@ -1586,7 +1685,7 @@ class ProvisionMainWindow(QMainWindow):
         self._check_fastboot_btn.setVisible(needs_fastboot)
         if needs_fastboot:
             self._fastboot_status.setText("Checking fastboot devices...")
-            self._fastboot_status.setStyleSheet("")
+            self._set_status_kind(self._fastboot_status, None)
             self._check_fastboot_devices()
         else:
             self._fastboot_status.setText("")
@@ -1603,13 +1702,13 @@ class ProvisionMainWindow(QMainWindow):
     def _populate_done(self) -> None:
         if self.state.flash_ret is None and not self.state.pkg_atoms:
             self._done_label.setText("No flashing was required. See the message below for next steps.")
-            self._done_label.setStyleSheet("color: #1a7f37;")
+            self._set_status_kind(self._done_label, "success")
         elif self.state.flash_ret == 0:
             self._done_label.setText("It seems the flashing has finished without errors. Happy hacking!")
-            self._done_label.setStyleSheet("color: #1a7f37;")
+            self._set_status_kind(self._done_label, "success")
         else:
             self._done_label.setText(f"Flashing failed (exit code {self.state.flash_ret}). Check the device right now.")
-            self._done_label.setStyleSheet("color: #c01c28;")
+            self._set_status_kind(self._done_label, "error")
 
         msg = ""
         if self.state.combo is not None and self.state.mr is not None:
