@@ -1282,6 +1282,8 @@ class ProvisionMainWindow(QMainWindow):
             types_text = ", ".join(entity_types) if entity_types else "(none)"
             repo_entries = []
             for entry in self.state.config.repo_entries:
+                if entry.id != ruyi_facade.PROVISION_REPO_ID:
+                    continue
                 source = entry.local_path or entry.remote or "(no source)"
                 repo_entries.append(f"{entry.id}: {source}")
             repos_text = "\n".join(f" * {entry}" for entry in repo_entries) or " * (none)"

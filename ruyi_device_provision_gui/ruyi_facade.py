@@ -26,6 +26,7 @@ from ruyi.ruyipkg.entity_provider import BaseEntity
 from ruyi.ruyipkg.host import get_native_host
 from ruyi.ruyipkg.install import do_install_atoms
 from ruyi.ruyipkg.pkg_manifest import PartitionKind, PartitionMapDecl
+from ruyi.ruyipkg.repo import DEFAULT_REPO_ID
 
 from ruyi.device.provision import (
     PackageProvisionStrategy,
@@ -113,21 +114,41 @@ def load_global_config(
     return GlobalConfig.load_from_config(gm, logger)
 
 
+PROVISION_REPO_ID = DEFAULT_REPO_ID
+
+
+def use_provision_repo(config: GlobalConfig) -> CompositeRepo:
+    """Make ``config.repo`` refer only to the official RuyiSDK repository."""
+    entries = [
+        entry
+        for entry in config.repo_entries
+        if entry.id == PROVISION_REPO_ID and entry.active
+    ]
+    if not entries:
+        raise RuntimeError(
+            f"active metadata repository '{PROVISION_REPO_ID}' is not configured"
+        )
+
+    mr = CompositeRepo(entries, config)
+    config.__dict__["repo"] = mr
+    return mr
+
+
 def ensure_repo(config: GlobalConfig) -> CompositeRepo:
     """Ensure the ruyi metadata repo is cloned and return it.
 
     This clones/updates the configured git repo on first run and may take a
     while. Always call from a background thread.
     """
-    mr = config.repo
+    mr = use_provision_repo(config)
     mr.ensure_git_repo()
     return mr
 
 
 def sync_repo(config: GlobalConfig, mr: CompositeRepo) -> CompositeRepo:
-    """Run the same repository sync step as ``ruyi update`` and reload metadata."""
-    mr.sync_all()
-    return CompositeRepo(config.repo_entries, config)
+    """Sync only the official RuyiSDK repository and reload its metadata."""
+    mr.sync_one(PROVISION_REPO_ID)
+    return use_provision_repo(config)
 
 
 def list_devices(mr: CompositeRepo) -> list[DeviceChoice]:

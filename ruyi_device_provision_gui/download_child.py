@@ -27,7 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     gm = EnvGlobalModeProvider(os.environ, list(sys.argv))
     logger = RuyiConsoleLogger(gm)
     config = GlobalConfig.load_from_config(gm, logger)
-    mr = config.repo
+    mr = ruyi_facade.use_provision_repo(config)
     mr.ensure_git_repo()
     return ruyi_facade.run_download(config, mr, argv)
 
