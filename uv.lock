@@ -679,7 +679,7 @@ wheels = [
 [[package]]
 name = "ruyi"
 version = "0.51.0a20260616"
-source = { editable = "../ruyi" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "argcomplete" },
     { name = "arpy" },
@@ -696,23 +696,9 @@ dependencies = [
     { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "zstandard" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "argcomplete", specifier = ">=2.0.0" },
-    { name = "arpy" },
-    { name = "babel", specifier = ">=2.10.3" },
-    { name = "fastjsonschema", specifier = ">=2.16.3" },
-    { name = "jinja2", specifier = ">=3.1.2" },
-    { name = "lz4", specifier = ">=4.0.2" },
-    { name = "pygit2", specifier = ">=1.11.1" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "requests", specifier = ">=2.28.1" },
-    { name = "rich", specifier = ">=13.3.1" },
-    { name = "semver", specifier = ">=2.10" },
-    { name = "tomlkit", specifier = ">=0.11.8" },
-    { name = "tzdata", marker = "sys_platform == 'win32'" },
-    { name = "zstandard", specifier = ">=0.20.0" },
+sdist = { url = "https://files.pythonhosted.org/packages/2d/7e/117790e8e2cc964a711e0519a2ffe5af156d45b494f56b0dd4be1f56e89a/ruyi-0.51.0a20260616.tar.gz", hash = "sha256:a8ad86cf04bd895a4383430176f117b0558ce47055396cc6e6ba9070314ca138", size = 192960, upload-time = "2026-06-16T13:23:25.885Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/99/e116a4cdf181acb31721aaf7ffac662ac12541b0e328194383983f94cc2b/ruyi-0.51.0a20260616-py3-none-any.whl", hash = "sha256:b6dbfcd3c59c2299b25965c15514334088ad0a32ea8afe3b74f2859180a7e195", size = 233776, upload-time = "2026-06-16T13:23:24.45Z" },
 ]
 
 [[package]]
@@ -733,7 +719,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "pyside6", specifier = ">=6.6" },
-    { name = "ruyi", editable = "../ruyi" },
+    { name = "ruyi", specifier = ">=0.51.0a20260616,<0.53" },
 ]
 
 [package.metadata.requires-dev]

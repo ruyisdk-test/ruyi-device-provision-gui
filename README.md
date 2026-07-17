@@ -29,11 +29,19 @@ provision strategy plugins.
   - `PySide6`
   - `ruyi`
 
-This project uses the sibling `../ruyi` checkout as an editable dependency:
+Install the project and its development dependencies with:
 
 ```bash
-cd /path/to/ruyisdk/ruyi-device-provision-gui
 uv sync --dev
+```
+
+`ruyi` is resolved from the configured Python package index. A sibling
+`../ruyi` source checkout is not required. Developers who intentionally want
+to run against a local ruyi checkout can opt in for that command without
+changing the project configuration or lock file:
+
+```bash
+uv run --with-editable /path/to/ruyi ruyi-device-provision-gui
 ```
 
 The GUI itself does not depend on `lsblk` or the external `git` command.
@@ -85,7 +93,7 @@ the device entities. Example:
 
 ```toml
 [repo]
-local = "/home/hachi/Documents/ruyisdk/ruyisdk-ruyisdk-website/news/ruyinews"
+local = "/path/to/ruyinews"
 ```
 
 ## Provisioning Flow
