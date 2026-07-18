@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QStyle,
     QVBoxLayout,
@@ -400,11 +401,18 @@ class ProvisionMainWindow(QMainWindow):
         title_label.setWordWrap(True)
         page.setAccessibleName(title)
         layout.addWidget(title_label)
+        has_expanding_widget = False
         for widget in widgets:
             if isinstance(widget, QLabel):
                 widget.setWordWrap(True)
-            layout.addWidget(widget)
-        layout.addStretch()
+            expands_vertically = widget.sizePolicy().verticalPolicy() in {
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.MinimumExpanding,
+            }
+            layout.addWidget(widget, 1 if expands_vertically else 0)
+            has_expanding_widget = has_expanding_widget or expands_vertically
+        if not has_expanding_widget:
+            layout.addStretch()
         self._stack.addWidget(page)
 
     def _make_log_view(self) -> QPlainTextEdit:

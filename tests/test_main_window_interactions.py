@@ -99,6 +99,35 @@ def test_sidebar_cannot_skip_forward_steps(window: ProvisionMainWindow) -> None:
     assert window._steps.currentRow() == window.STEP_PACKAGES
 
 
+@pytest.mark.parametrize(
+    ("step", "widget_name"),
+    [
+        (ProvisionMainWindow.STEP_DEVICE, "_device_list"),
+        (ProvisionMainWindow.STEP_VARIANT, "_variant_list"),
+        (ProvisionMainWindow.STEP_COMBO, "_combo_list"),
+        (ProvisionMainWindow.STEP_PACKAGES, "_packages_list"),
+        (ProvisionMainWindow.STEP_DOWNLOAD, "_download_log"),
+        (ProvisionMainWindow.STEP_FLASH, "_flash_log"),
+    ],
+)
+def test_primary_step_content_fills_page_height(
+    window: ProvisionMainWindow,
+    qtbot,
+    step: int,
+    widget_name: str,
+) -> None:
+    window.resize(1060, 720)
+    window._stack.setCurrentIndex(step)
+    window.show()
+    qtbot.waitUntil(lambda: window._stack.height() > 400, timeout=1000)
+
+    page = window._stack.widget(step)
+    widget = getattr(window, widget_name)
+    bottom_gap = page.height() - widget.geometry().bottom() - 1
+
+    assert bottom_gap <= page.layout().contentsMargins().bottom() + 1
+
+
 @pytest.mark.parametrize("dark", [False, True])
 def test_theme_uses_application_palette(
     window: ProvisionMainWindow,
