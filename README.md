@@ -106,10 +106,30 @@ Downloaded binaries are stored as `ruyi-<version>` under
 are not retained. The active version is not stored in a separate state file;
 it is derived directly from the target of `/usr/local/bin/ruyi`.
 
+The version page separates available downloads from locally downloaded
+versions. A custom URL can be added for the current application session when
+its filename matches `ruyi-<semver version>-<arch>`; refreshing the API catalog
+does not remove these transient entries. Custom URLs are not persisted and are
+downloaded only after selecting the row and pressing `Download`.
+
 Activation may require a sudo password. If `/usr/local/bin/ruyi` already exists
 and is not a symlink managed by Oh My Ruyi, the GUI asks before replacing it.
 After confirmation, the existing path is moved to `ruyi.bak` or the next free
 numbered backup before the managed symlink is installed.
+
+Downloaded versions can be switched with `Activate`, removed with `Delete`, or
+disconnected from `/usr/local/bin/ruyi` with `Deactivate`. The active binary
+must be deactivated before it can be deleted. Deactivation removes only the
+managed symlink and does not restore or delete backups. The local table shows
+only binaries compatible with the host CPU architecture, determined from each
+executable header. It reports channel, active state, and size in separate
+columns. Versions matching the API catalog are marked `Latest`; transient Add
+URL entries do not affect that note. Add URL also rejects architecture suffixes
+that do not match the host. `Browse` reveals the selected binary in the system
+file manager, while the local `Refresh` button rescans the versions directory.
+The local panel also reports whether the first `ruyi` found through the GUI
+process's `PATH` resolves through the managed activation link or is
+missing/shadowed by another installation.
 
 When `~/.local/state/ruyi/telemetry/installation.json` is absent after
 activation, the GUI presents ruyi's first-install telemetry choices. It then

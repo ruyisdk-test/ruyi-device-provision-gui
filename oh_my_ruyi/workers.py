@@ -182,6 +182,7 @@ class VersionActivationWorker(_BaseWorker):
             sys.executable,
             "-m",
             "oh_my_ruyi.version_manager",
+            "activate",
             os.fspath(self._binary),
             os.fspath(self._directory),
             os.fspath(self._link),
@@ -209,6 +210,88 @@ class VersionActivationWorker(_BaseWorker):
             version_manager.read_activation_state(self._link, self._directory),
             Path(backup) if isinstance(backup, str) else None,
         )
+
+
+class VersionDeleteWorker(_BaseWorker):
+    """Delete one inactive binary from the user's version directory."""
+
+    def __init__(self, binary: Path, directory: Path, link: Path) -> None:
+        super().__init__()
+        self._binary = binary
+        self._directory = directory
+        self._link = link
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(
+                version_manager.delete_version(
+                    self._binary,
+                    self._directory,
+                    link=self._link,
+                )
+            )
+        except BaseException as exc:  # noqa: BLE001
+            self._fail(exc)
+
+
+class VersionDeactivationWorker(_BaseWorker):
+    """Remove the managed activation symlink, requesting sudo when needed."""
+
+    password_requested = Signal(str, object)
+
+    def __init__(self, directory: Path, link: Path) -> None:
+        super().__init__()
+        self._directory = directory
+        self._link = link
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            if os.access(self._link.parent, os.W_OK):
+                result = version_manager.deactivate_version(
+                    self._directory,
+                    link=self._link,
+                )
+            else:
+                result = self._deactivate_with_sudo()
+            self.finished.emit(result)
+        except BaseException as exc:  # noqa: BLE001
+            self._fail(exc)
+
+    def _deactivate_with_sudo(self) -> version_manager.ActivationState:
+        response: dict[str, str | None] = {"password": None}
+        self.password_requested.emit(
+            f"sudo password is required to update {self._link}.",
+            response,
+        )
+        password = response["password"]
+        if password is None:
+            raise RuntimeError("deactivation was cancelled")
+        completed = subprocess.run(
+            [
+                "sudo",
+                "-S",
+                "-p",
+                "",
+                sys.executable,
+                "-m",
+                "oh_my_ruyi.version_manager",
+                "deactivate",
+                os.fspath(self._directory),
+                os.fspath(self._link),
+            ],
+            input=password + "\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            message = completed.stderr.strip() or completed.stdout.strip()
+            raise RuntimeError(
+                message or f"sudo exited with code {completed.returncode}"
+            )
+        return version_manager.read_activation_state(self._link, self._directory)
 
 
 class TelemetrySetupWorker(_BaseWorker):

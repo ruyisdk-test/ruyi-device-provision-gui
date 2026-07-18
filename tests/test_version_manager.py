@@ -9,6 +9,13 @@ import pytest
 from oh_my_ruyi import version_manager
 
 
+def _elf_header(machine: int, *, elf_class: int = 2) -> bytes:
+    header = bytearray(64)
+    header[:7] = b"\x7fELF" + bytes((elf_class, 1, 1))
+    header[18:20] = machine.to_bytes(2, "little")
+    return bytes(header)
+
+
 def _release_payload() -> dict:
     return {
         "channels": {
@@ -57,6 +64,58 @@ def test_fetch_release_catalog_falls_back_to_static_mirror() -> None:
     ]
 
 
+def test_custom_release_url_requires_semver_and_arch_suffix() -> None:
+    release = version_manager.release_from_url(
+        "https://downloads.example/ruyi-0.53.0-beta.1-amd64"
+    )
+
+    assert release.version == "0.53.0-beta.1"
+    assert release.architecture == "amd64"
+    assert release.channel == "custom"
+
+    for invalid in [
+        "https://downloads.example/ruyi-0.53-amd64",
+        "https://downloads.example/ruyi-0.53.0.amd64",
+        "file:///tmp/ruyi-0.53.0-amd64",
+    ]:
+        with pytest.raises(version_manager.VersionManagerError):
+            version_manager.release_from_url(invalid)
+
+
+@pytest.mark.parametrize(
+    ("architecture", "machine", "expected"),
+    [
+        ("amd64", "x86_64", True),
+        ("x86_64", "AMD64", True),
+        ("macos-arm64", "aarch64", True),
+        ("riscv64", "x86_64", False),
+        ("unknown-arch", "x86_64", False),
+    ],
+)
+def test_architecture_compatibility_normalizes_common_aliases(
+    architecture: str,
+    machine: str,
+    expected: bool,
+) -> None:
+    assert (
+        version_manager.architecture_is_compatible(
+            architecture,
+            machine=machine,
+        )
+        is expected
+    )
+
+
+def test_version_sort_key_orders_stable_and_numeric_versions() -> None:
+    versions = ["0.9.0", "0.10.0-alpha.1", "0.10.0"]
+
+    assert sorted(versions, key=version_manager.version_sort_key, reverse=True) == [
+        "0.10.0",
+        "0.10.0-alpha.1",
+        "0.9.0",
+    ]
+
+
 def test_download_release_uses_mirror_and_drops_arch_suffix(tmp_path: Path) -> None:
     release = version_manager.RuyiRelease(
         "0.50.0",
@@ -86,8 +145,8 @@ def test_download_release_uses_mirror_and_drops_arch_suffix(tmp_path: Path) -> N
 
 
 def test_installed_versions_are_discovered_without_state_file(tmp_path: Path) -> None:
-    (tmp_path / "ruyi-0.49.0").write_bytes(b"old")
-    (tmp_path / "ruyi-0.52.0-alpha.20260714").write_bytes(b"new")
+    (tmp_path / "ruyi-0.49.0").write_bytes(_elf_header(62))
+    (tmp_path / "ruyi-0.52.0-alpha.20260714").write_bytes(_elf_header(243))
     (tmp_path / "unrelated").write_bytes(b"ignored")
 
     installed = version_manager.list_installed_versions(tmp_path)
@@ -96,6 +155,38 @@ def test_installed_versions_are_discovered_without_state_file(tmp_path: Path) ->
         "0.52.0-alpha.20260714",
         "0.49.0",
     ]
+    assert installed[0].size == 64
+    assert installed[0].architecture == "riscv64"
+    assert installed[0].channel == "testing"
+    assert installed[1].architecture == "x86_64"
+    assert installed[1].channel == "stable"
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ("0.50.0", "stable"),
+        ("0.50.0+build.1", "stable"),
+        ("0.51.0-alpha.1", "testing"),
+        ("0.51.0-beta.2", "testing"),
+        ("0.51.0-rc.3", "testing"),
+    ],
+)
+def test_version_channel_is_inferred_from_prerelease_suffix(
+    version: str,
+    expected: str,
+) -> None:
+    assert version_manager.version_channel(version) == expected
+
+
+def test_binary_architecture_does_not_use_filename(tmp_path: Path) -> None:
+    binary = tmp_path / "ruyi-0.50.0-amd64"
+    binary.write_bytes(_elf_header(243))
+
+    assert version_manager.binary_architecture(binary) == "riscv64"
+
+    binary.write_bytes(b"not an executable header")
+    assert version_manager.binary_architecture(binary) == "unknown"
 
 
 def test_activation_state_is_derived_from_symlink(tmp_path: Path) -> None:
@@ -166,6 +257,96 @@ def test_existing_backup_is_not_overwritten(tmp_path: Path) -> None:
     (tmp_path / "ruyi.bak").write_bytes(b"previous backup")
 
     assert version_manager.next_backup_path(link) == tmp_path / "ruyi.bak.1"
+
+
+def test_delete_version_refuses_active_binary(tmp_path: Path) -> None:
+    directory = tmp_path / "versions"
+    directory.mkdir()
+    binary = directory / "ruyi-0.50.0"
+    binary.write_bytes(b"ruyi")
+    link = tmp_path / "bin" / "ruyi"
+    link.parent.mkdir()
+    link.symlink_to(binary)
+
+    with pytest.raises(version_manager.ActiveVersionError):
+        version_manager.delete_version(binary, directory, link=link)
+
+    assert binary.exists()
+
+
+def test_delete_version_removes_inactive_binary(tmp_path: Path) -> None:
+    directory = tmp_path / "versions"
+    directory.mkdir()
+    binary = directory / "ruyi-0.49.0"
+    binary.write_bytes(b"ruyi")
+
+    deleted = version_manager.delete_version(
+        binary,
+        directory,
+        link=tmp_path / "bin" / "ruyi",
+    )
+
+    assert deleted.version == "0.49.0"
+    assert not binary.exists()
+
+
+def test_deactivate_removes_only_managed_link(tmp_path: Path) -> None:
+    directory = tmp_path / "versions"
+    directory.mkdir()
+    binary = directory / "ruyi-0.50.0"
+    binary.write_bytes(b"ruyi")
+    link = tmp_path / "bin" / "ruyi"
+    link.parent.mkdir()
+    link.symlink_to(binary)
+
+    state = version_manager.deactivate_version(directory, link=link)
+
+    assert not state.exists
+    assert not os.path.lexists(link)
+    assert binary.exists()
+
+    link.symlink_to(tmp_path / "other-ruyi")
+    with pytest.raises(version_manager.UnmanagedActivationError):
+        version_manager.deactivate_version(directory, link=link)
+
+
+def test_path_state_detects_managed_and_shadowed_commands(tmp_path: Path) -> None:
+    directory = tmp_path / "versions"
+    directory.mkdir()
+    binary = directory / "ruyi-0.50.0"
+    binary.write_bytes(b"ruyi")
+    binary.chmod(0o755)
+    managed_bin = tmp_path / "managed-bin"
+    managed_bin.mkdir()
+    link = managed_bin / "ruyi"
+    link.symlink_to(binary)
+    shadow_bin = tmp_path / "shadow-bin"
+    shadow_bin.mkdir()
+    shadow = shadow_bin / "ruyi"
+    shadow.write_text("#!/bin/sh\n")
+    shadow.chmod(0o755)
+
+    correct = version_manager.read_path_state(
+        directory,
+        link=link,
+        path=os.fspath(managed_bin),
+    )
+    shadowed = version_manager.read_path_state(
+        directory,
+        link=link,
+        path=os.pathsep.join([os.fspath(shadow_bin), os.fspath(managed_bin)]),
+    )
+    missing = version_manager.read_path_state(
+        directory,
+        link=link,
+        path="",
+    )
+
+    assert correct.correct
+    assert correct.command == link
+    assert not shadowed.correct
+    assert shadowed.command == shadow
+    assert missing.command is None
 
 
 def test_telemetry_setup_applies_choice_then_runs_status(tmp_path: Path) -> None:

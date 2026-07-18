@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication
 from ruyi.config import GlobalConfig
 from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-from oh_my_ruyi import host_storage, ruyi_facade, workers
+from oh_my_ruyi import host_storage, ruyi_facade, version_manager, workers
 from oh_my_ruyi import main_window
 from oh_my_ruyi.main_window import (
     ProvisionMainWindow,
@@ -21,6 +21,13 @@ from oh_my_ruyi.main_window import (
 )
 from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
 from oh_my_ruyi.workers import FlashWorker
+
+
+def _x86_64_elf() -> bytes:
+    header = bytearray(64)
+    header[:7] = b"\x7fELF\x02\x01\x01"
+    header[18:20] = (62).to_bytes(2, "little")
+    return bytes(header)
 
 
 @pytest.fixture
@@ -59,22 +66,334 @@ def test_feature_tabs_are_in_required_order(window: ProvisionMainWindow) -> None
     assert window._config_manager_tab.layout() is None
 
 
-def test_version_list_reads_downloads_and_active_symlink(
+def test_version_tables_separate_available_and_downloaded_versions(
     window: ProvisionMainWindow,
+    monkeypatch,
 ) -> None:
     window._pm_versions_directory.mkdir(parents=True)
     binary = window._pm_versions_directory / "ruyi-0.50.0"
-    binary.write_bytes(b"ruyi")
+    binary.write_bytes(_x86_64_elf())
+    binary.chmod(0o755)
     window._pm_activation_link.parent.mkdir(parents=True)
     window._pm_activation_link.symlink_to(binary)
+    monkeypatch.setenv("PATH", os.fspath(window._pm_activation_link.parent))
+    window._pm_catalog_releases = [
+        version_manager.RuyiRelease(
+            "0.52.0-alpha.20260714",
+            "testing",
+            "2026-07-14T10:54:29Z",
+            ("https://example.test/ruyi",),
+            "x86_64",
+        ),
+        version_manager.RuyiRelease(
+            "0.50.0",
+            "stable",
+            "2026-06-23T13:06:10Z",
+            ("https://example.test/stable-ruyi",),
+            "x86_64",
+        ),
+    ]
 
-    window._refresh_pm_versions(select_version="0.50.0")
+    window._refresh_pm_versions(select_installed_version="0.50.0")
 
-    assert window._pm_version_list.count() == 1
-    assert "downloaded" in window._pm_version_list.item(0).text()
-    assert "active" in window._pm_version_list.item(0).text()
-    assert "0.50.0" in window._pm_active_status.text()
+    assert window._pm_available_table.columnCount() == 4
+    assert window._pm_available_table.rowCount() == 2
+    assert window._pm_available_table.item(0, 0).text() == "0.52.0-alpha.20260714"
+    assert window._pm_available_table.item(1, 1).text() == "stable"
+    assert window._pm_installed_table.columnCount() == 5
+    assert window._pm_installed_table.rowCount() == 1
+    assert window._pm_installed_table.item(0, 0).text() == "0.50.0"
+    assert window._pm_installed_table.item(0, 1).text() == "stable"
+    assert window._pm_installed_table.item(0, 2).text() == "Activate"
+    assert window._pm_installed_table.item(0, 3).text() == "64 B"
+    assert window._pm_installed_table.item(0, 4).text() == "Latest"
     assert not window._pm_activate_btn.isEnabled()
+    assert not window._pm_delete_btn.isEnabled()
+    assert window._pm_deactivate_btn.isEnabled()
+    assert "PATH ready" in window._pm_path_status.text()
+
+
+def test_browse_opens_selected_binary_directory(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    window._pm_versions_directory.mkdir(parents=True)
+    binary = window._pm_versions_directory / "ruyi-0.50.0"
+    binary.write_bytes(_x86_64_elf())
+    started: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(main_window.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        main_window.shutil,
+        "which",
+        lambda program: "/usr/bin/dolphin" if program == "dolphin" else None,
+    )
+    monkeypatch.setattr(
+        main_window.QProcess,
+        "startDetached",
+        lambda program, arguments: (
+            started.append((program, list(arguments))) or (True, 123)
+        ),
+    )
+    window._refresh_pm_versions(select_installed_version="0.50.0")
+
+    assert window._pm_browse_btn.isEnabled()
+    window._pm_browse_btn.click()
+
+    assert started == [("dolphin", ["--select", os.fspath(binary)])]
+
+
+def test_version_statuses_align_and_button_stacks_are_centered(
+    window: ProvisionMainWindow,
+    qtbot,
+) -> None:
+    window.resize(1060, 720)
+    window.show()
+    window._pm_status.setText(
+        "Release information loaded from https://api.ruyisdk.cn/releases/latest-pm."
+    )
+    window._set_status_kind(window._pm_status, "success")
+    window._pm_path_status.setText("PATH ready: ruyi resolves to the managed version.")
+    window._set_status_kind(window._pm_path_status, "success")
+
+    qtbot.waitUntil(
+        lambda: window._pm_status.height() == window._pm_path_status.height(),
+        timeout=1000,
+    )
+
+    assert window._pm_status.objectName() == window._pm_path_status.objectName()
+    assert window._pm_status.property("statusKind") == ""
+    assert window._pm_path_status.property("statusKind") == ""
+    assert window._pm_status.alignment() & Qt.AlignmentFlag.AlignTop
+    assert window._pm_path_status.alignment() & Qt.AlignmentFlag.AlignTop
+    assert window._pm_status.height() == window._pm_path_status.height()
+
+    available_buttons_center = (
+        window._pm_refresh_btn.geometry().top()
+        + window._pm_add_url_btn.geometry().bottom()
+    ) // 2
+    installed_buttons_center = (
+        window._pm_local_refresh_btn.geometry().top()
+        + window._pm_browse_btn.geometry().bottom()
+    ) // 2
+    assert (
+        abs(
+            available_buttons_center
+            - window._pm_available_table.geometry().center().y()
+        )
+        <= 2
+    )
+    assert (
+        abs(
+            installed_buttons_center
+            - window._pm_installed_table.geometry().center().y()
+        )
+        <= 2
+    )
+    assert window._pm_installed_table.horizontalScrollBar().maximum() == 0
+
+
+def test_version_statuses_shrink_to_current_text_height(
+    window: ProvisionMainWindow,
+    qtbot,
+) -> None:
+    window.resize(1060, 720)
+    window.show()
+    long_message = " ".join(["A long status message that wraps."] * 12)
+    window._pm_status.setText(long_message)
+    window._pm_path_status.setText(long_message)
+    window._align_pm_status_heights()
+    tall_height = window._pm_status.height()
+
+    window._pm_status.setText("API ready.")
+    window._pm_path_status.setText("PATH ready.")
+    window._align_pm_status_heights()
+    qtbot.wait(0)
+
+    expected_height = max(
+        label.heightForWidth(label.width())
+        for label in (window._pm_status, window._pm_path_status)
+    )
+    assert window._pm_status.height() == expected_height
+    assert window._pm_path_status.height() == expected_height
+    assert window._pm_status.height() < tall_height
+
+
+def test_local_refresh_rescans_versions_directory(
+    window: ProvisionMainWindow,
+) -> None:
+    window._refresh_pm_versions()
+    assert window._pm_installed_table.rowCount() == 0
+
+    window._pm_versions_directory.mkdir(parents=True)
+    binary = window._pm_versions_directory / "ruyi-0.50.0"
+    binary.write_bytes(_x86_64_elf())
+
+    window._pm_local_refresh_btn.click()
+
+    assert window._pm_installed_table.rowCount() == 1
+    assert window._pm_installed_table.item(0, 0).text() == "0.50.0"
+
+
+def test_add_url_is_transient_and_survives_refresh(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    custom_url = "https://downloads.example/ruyi-0.53.0-beta.1-amd64"
+    monkeypatch.setattr(
+        main_window.QInputDialog,
+        "getText",
+        lambda *_args, **_kwargs: (custom_url, True),
+    )
+
+    window._add_pm_download_url()
+
+    assert window._pm_available_table.rowCount() == 1
+    assert window._pm_available_table.item(0, 0).text() == "0.53.0-beta.1"
+    assert window._pm_available_table.item(0, 1).text() == "custom"
+    assert window._pm_available_table.item(0, 2).text() == "amd64"
+    assert window._pm_download_btn.isEnabled()
+
+    window._on_pm_catalog_ready(
+        version_manager.ReleaseCatalog(
+            (
+                version_manager.RuyiRelease(
+                    "0.50.0",
+                    "stable",
+                    "2026-06-23T13:06:10Z",
+                    ("https://example.test/ruyi",),
+                    "x86_64",
+                ),
+            ),
+            version_manager.PRIMARY_RELEASES_URL,
+        )
+    )
+
+    assert window._pm_available_table.rowCount() == 2
+    assert {window._pm_available_table.item(row, 1).text() for row in range(2)} == {
+        "custom",
+        "stable",
+    }
+
+
+def test_add_url_rejects_incompatible_architecture(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(version_manager.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        main_window.QInputDialog,
+        "getText",
+        lambda *_args, **_kwargs: (
+            "https://downloads.example/ruyi-0.53.0-beta.1-riscv64",
+            True,
+        ),
+    )
+    warnings: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "warning",
+        lambda _parent, title, message: warnings.append((title, message)),
+    )
+
+    window._add_pm_download_url()
+
+    assert window._pm_custom_releases == []
+    assert window._pm_available_table.rowCount() == 0
+    assert warnings == [
+        (
+            "Incompatible ruyi architecture",
+            "The URL provides a riscv64 binary, but this computer uses x86_64.",
+        )
+    ]
+
+
+def test_installed_table_hides_incompatible_binary(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(version_manager.platform, "machine", lambda: "x86_64")
+    window._pm_versions_directory.mkdir(parents=True)
+    compatible = window._pm_versions_directory / "ruyi-0.50.0"
+    incompatible = window._pm_versions_directory / "ruyi-0.51.0"
+    compatible.write_bytes(_x86_64_elf())
+    riscv_header = bytearray(64)
+    riscv_header[:7] = b"\x7fELF\x02\x01\x01"
+    riscv_header[18:20] = (243).to_bytes(2, "little")
+    incompatible.write_bytes(riscv_header)
+
+    window._refresh_pm_versions()
+
+    assert window._pm_installed_table.rowCount() == 1
+    assert window._pm_installed_table.item(0, 0).text() == "0.50.0"
+    assert window._pm_installed_table.item(0, 2).text() == ""
+
+
+def test_latest_note_ignores_transient_custom_releases(
+    window: ProvisionMainWindow,
+) -> None:
+    window._pm_versions_directory.mkdir(parents=True)
+    stable = window._pm_versions_directory / "ruyi-0.50.0"
+    custom = window._pm_versions_directory / "ruyi-0.53.0-beta.1"
+    stable.write_bytes(_x86_64_elf())
+    custom.write_bytes(_x86_64_elf())
+    window._pm_catalog_releases = [
+        version_manager.RuyiRelease(
+            "0.50.0",
+            "stable",
+            "2026-06-23T13:06:10Z",
+            ("https://example.test/ruyi",),
+            "x86_64",
+        )
+    ]
+    window._pm_custom_releases = [
+        version_manager.RuyiRelease(
+            "0.53.0-beta.1",
+            "custom",
+            "",
+            ("https://example.test/custom-ruyi",),
+            "x86_64",
+        )
+    ]
+
+    window._refresh_pm_versions()
+
+    notes = {
+        window._pm_installed_table.item(row, 0).text(): window._pm_installed_table.item(
+            row, 4
+        ).text()
+        for row in range(window._pm_installed_table.rowCount())
+    }
+    assert notes == {"0.53.0-beta.1": "", "0.50.0": "Latest"}
+
+
+def test_deactivate_requires_selected_active_version(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    window._pm_versions_directory.mkdir(parents=True)
+    binary = window._pm_versions_directory / "ruyi-0.50.0"
+    binary.write_bytes(_x86_64_elf())
+    window._pm_activation_link.parent.mkdir(parents=True)
+    window._pm_activation_link.symlink_to(binary)
+    questions: list[bool] = []
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: (
+            questions.append(True) or main_window.QMessageBox.StandardButton.Yes
+        ),
+    )
+
+    window._refresh_pm_versions()
+
+    assert window._pm_installed_table.currentRow() == -1
+    assert not window._pm_deactivate_btn.isEnabled()
+    window._deactivate_selected_pm_version()
+    assert not questions
+    assert window._pm_activation_link.is_symlink()
+
+    window._pm_installed_table.selectRow(0)
+    assert window._pm_deactivate_btn.isEnabled()
 
 
 def test_activation_confirms_and_backs_up_unmanaged_command(
@@ -92,7 +411,7 @@ def test_activation_confirms_and_backs_up_unmanaged_command(
         "question",
         lambda *_args, **_kwargs: main_window.QMessageBox.StandardButton.Yes,
     )
-    window._refresh_pm_versions(select_version="0.50.0")
+    window._refresh_pm_versions(select_installed_version="0.50.0")
 
     window._activate_selected_pm_version()
 
@@ -100,6 +419,75 @@ def test_activation_confirms_and_backs_up_unmanaged_command(
     assert window._pm_activation_link.is_symlink()
     assert window._pm_activation_link.resolve() == binary
     assert window._pm_activation_link.with_name("ruyi.bak").read_bytes() == b"old"
+
+
+def test_downloaded_versions_can_switch_delete_and_deactivate(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+) -> None:
+    window._pm_versions_directory.mkdir(parents=True)
+    stable = window._pm_versions_directory / "ruyi-0.50.0"
+    testing = window._pm_versions_directory / "ruyi-0.52.0-alpha.20260714"
+    stable.write_bytes(b"stable")
+    testing.write_bytes(b"testing")
+    window._pm_activation_link.parent.mkdir(parents=True)
+    window._pm_activation_link.symlink_to(stable)
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: main_window.QMessageBox.StandardButton.Yes,
+    )
+
+    window._refresh_pm_versions(select_installed_version="0.52.0-alpha.20260714")
+    assert window._pm_activate_btn.isEnabled()
+    assert window._pm_delete_btn.isEnabled()
+    window._activate_selected_pm_version()
+    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    assert window._pm_activation_link.resolve() == testing
+
+    window._deactivate_selected_pm_version()
+    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    assert not os.path.lexists(window._pm_activation_link)
+    assert stable.exists() and testing.exists()
+
+    window._refresh_pm_versions(select_installed_version="0.50.0")
+    window._delete_selected_pm_version()
+    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    assert not stable.exists()
+    assert testing.exists()
+
+
+def test_path_status_warns_when_another_ruyi_shadows_managed_version(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window._pm_versions_directory.mkdir(parents=True)
+    managed = window._pm_versions_directory / "ruyi-0.50.0"
+    managed.write_bytes(b"managed")
+    managed.chmod(0o755)
+    window._pm_activation_link.parent.mkdir(parents=True)
+    window._pm_activation_link.symlink_to(managed)
+    shadow_bin = tmp_path / "shadow-bin"
+    shadow_bin.mkdir()
+    shadow = shadow_bin / "ruyi"
+    shadow.write_text("#!/bin/sh\n")
+    shadow.chmod(0o755)
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join(
+            [os.fspath(shadow_bin), os.fspath(window._pm_activation_link.parent)]
+        ),
+    )
+
+    window._refresh_pm_versions()
+
+    assert "resolves first" in window._pm_path_status.text()
+    assert os.fspath(shadow) in window._pm_path_status.text()
+    assert os.fspath(managed) not in window._pm_path_status.text()
+    assert os.fspath(window._pm_activation_link) in window._pm_path_status.text()
+    assert window._pm_path_status.property("statusKind") == "error"
 
 
 @pytest.mark.parametrize(
