@@ -535,6 +535,47 @@ def test_slow_storage_discovery_does_not_block_ui(
     qtbot.waitUntil(lambda: window._thread is None, timeout=2000)
     assert window._storage_box.isEnabled()
     assert window._storage_inputs["disk"].count() == 1
+
+
+def test_storage_refresh_discovers_new_disk_and_preserves_selection(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+) -> None:
+    window.state.prepared = SimpleNamespace(
+        requested_host_blkdevs=["disk"],
+        needed_cmds=set(),
+    )
+    monkeypatch.setattr(ruyi_facade, "part_description", lambda _part: "Whole disk")
+    monkeypatch.setattr(host_storage, "validation_is_slow", lambda: False)
+    first_disk = host_storage.BlockDeviceChoice(
+        path="/dev/disk-old",
+        display_name="/dev/disk-old - 16.0 GiB",
+        fingerprint="old-disk",
+    )
+    new_disk = host_storage.BlockDeviceChoice(
+        path="/dev/disk-new",
+        display_name="/dev/disk-new - 32.0 GiB",
+        fingerprint="new-disk",
+    )
+    discoveries = iter([[first_disk], [first_disk, new_disk]])
+    monkeypatch.setattr(host_storage, "list_disks", lambda: next(discoveries))
+
+    window._set_step(window.STEP_STORAGE)
+    window._populate_storage()
+    target = window._storage_inputs["disk"]
+    target.setCurrentIndex(0)
+
+    window._refresh_storage_btn.click()
+
+    qtbot.waitUntil(lambda: window._thread is None, timeout=1000)
+    target = window._storage_inputs["disk"]
+    assert target.count() == 2
+    assert target.findData("/dev/disk-new") >= 0
+    assert window._storage_path(target) == "/dev/disk-old"
+    assert window._refresh_storage_btn.isEnabled()
+
+
 def test_storage_controls_have_accessible_labels(
     window: ProvisionMainWindow,
     monkeypatch,

@@ -126,6 +126,7 @@ class ProvisionMainWindow(QMainWindow):
         self._storage_inputs: dict[str, QComboBox] = {}
         self._storage_mount_warnings: dict[str, QLabel] = {}
         self._storage_mount_confirmations: dict[str, QCheckBox] = {}
+        self._storage_discovery_paths: dict[str, str] = {}
 
         self._build_ui()
         self._connect_logs()
@@ -331,10 +332,17 @@ class ProvisionMainWindow(QMainWindow):
         self._storage_error = QLabel("")
         self._storage_error.setWordWrap(True)
         self._storage_error.setProperty("statusKind", "warning")
+        self._refresh_storage_btn = QPushButton("Refresh disks")
+        self._refresh_storage_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        )
+        self._refresh_storage_btn.setToolTip("Scan for newly connected storage devices")
+        self._refresh_storage_btn.clicked.connect(self._refresh_storage_disks)
         self._add_page(
             "Provide storage paths",
             [
                 QLabel(host_storage.storage_platform_hint()),
+                self._refresh_storage_btn,
                 self._storage_box,
                 self._storage_error,
             ],
@@ -1128,6 +1136,11 @@ class ProvisionMainWindow(QMainWindow):
             "Reselect versions" if self._versions_visited else "Reselect packages"
         )
         self._restart_btn.setEnabled(self.state.mr is not None)
+        self._refresh_storage_btn.setEnabled(
+            not busy
+            and self._current_step == self.STEP_STORAGE
+            and self.state.prepared is not None
+        )
         flash_recoverable = self._current_step == self.STEP_FLASH and self._flash_recoverable and not busy
         self._flash_recovery_row.setVisible(flash_recoverable)
         self._retry_flash_btn.setEnabled(self.state.prepared is not None)
@@ -1434,8 +1447,11 @@ class ProvisionMainWindow(QMainWindow):
     def _populate_storage(
         self,
         disks: list[host_storage.BlockDeviceChoice] | None = None,
+        selected_paths: dict[str, str] | None = None,
     ) -> None:
         assert self.state.prepared is not None
+        if selected_paths is None:
+            selected_paths = dict(self.state.host_blkdev_map)
         while self._storage_layout.count():
             item = self._storage_layout.takeAt(0)
             widget = item.widget()
@@ -1449,7 +1465,7 @@ class ProvisionMainWindow(QMainWindow):
         if disks is None:
             disks = [] if discover_async else host_storage.list_disks()
         for part in self.state.prepared.requested_host_blkdevs:
-            previous_path = self.state.host_blkdev_map.get(part)
+            previous_path = selected_paths.get(part)
             desc = ruyi_facade.part_description(part)
             label = QLabel(f"{desc} ({part})")
             edit = QComboBox()
@@ -1508,13 +1524,27 @@ class ProvisionMainWindow(QMainWindow):
             self._refresh_storage_mount_warning(edit, warning, confirm)
         self._storage_layout.addStretch()
         if discover_async:
-            self._storage_box.setEnabled(False)
-            self._storage_error.setText("Detecting disks...")
-            self._start_storage_discovery()
+            self._start_storage_discovery(selected_paths)
         else:
             self._storage_box.setEnabled(True)
 
-    def _start_storage_discovery(self) -> None:
+    def _refresh_storage_disks(self) -> None:
+        if self.state.prepared is None or self._is_busy():
+            return
+        selected_paths = {
+            part: path
+            for part, edit in self._storage_inputs.items()
+            if (path := self._storage_path(edit))
+        }
+        self._start_storage_discovery(selected_paths)
+
+    def _start_storage_discovery(
+        self,
+        selected_paths: dict[str, str] | None = None,
+    ) -> None:
+        self._storage_discovery_paths = dict(selected_paths or {})
+        self._storage_box.setEnabled(False)
+        self._storage_error.setText("Detecting disks...")
         self._worker = StorageDiscoveryWorker()
         self._worker.finished.connect(self._on_storage_disks_ready)
         self._worker.failed.connect(self._on_storage_discovery_failed)
@@ -1522,11 +1552,14 @@ class ProvisionMainWindow(QMainWindow):
         self._refresh_buttons()
 
     def _on_storage_disks_ready(self, disks: object) -> None:
+        selected_paths = self._storage_discovery_paths
+        self._storage_discovery_paths = {}
         self._cleanup_thread()
-        self._populate_storage(list(disks))
+        self._populate_storage(list(disks), selected_paths)
         self._refresh_buttons()
 
     def _on_storage_discovery_failed(self, message: str) -> None:
+        self._storage_discovery_paths = {}
         self._cleanup_thread()
         self._storage_box.setEnabled(True)
         self._storage_error.setText(
