@@ -15,13 +15,16 @@ every line in real time.
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import selectors
 import signal
 import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
@@ -29,7 +32,7 @@ from ruyi.config import GlobalConfig
 from ruyi.ruyipkg.composite_repo import CompositeRepo
 from ruyi.ruyipkg.pkg_manifest import PartitionKind, PartitionMapDecl
 
-from . import host_storage, ruyi_facade
+from . import host_storage, ruyi_facade, version_manager
 from .ruyi_facade import PreparedProvision
 
 
@@ -86,6 +89,126 @@ class StorageDiscoveryWorker(_BaseWorker):
             self.finished.emit(host_storage.list_disks())
         except BaseException as exc:  # noqa: BLE001
             self._fail(exc)
+
+
+class VersionCatalogWorker(_BaseWorker):
+    """Fetch the latest stable and testing package manager releases."""
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(version_manager.fetch_release_catalog())
+        except BaseException as exc:  # noqa: BLE001
+            self._fail(exc)
+
+
+class VersionDownloadWorker(_BaseWorker):
+    """Download one standalone ruyi binary into the user's version directory."""
+
+    def __init__(
+        self,
+        release: version_manager.RuyiRelease,
+        directory: Path,
+    ) -> None:
+        super().__init__()
+        self._release = release
+        self._directory = directory
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(
+                version_manager.download_release(self._release, self._directory)
+            )
+        except BaseException as exc:  # noqa: BLE001
+            self._fail(exc)
+
+
+class VersionActivationWorker(_BaseWorker):
+    """Activate a downloaded binary, requesting sudo credentials when needed."""
+
+    password_requested = Signal(str, object)
+
+    def __init__(
+        self,
+        binary: Path,
+        directory: Path,
+        link: Path,
+        *,
+        backup_unmanaged: bool,
+    ) -> None:
+        super().__init__()
+        self._binary = binary
+        self._directory = directory
+        self._link = link
+        self._backup_unmanaged = backup_unmanaged
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            if os.access(self._link.parent, os.W_OK):
+                result = version_manager.activate_version(
+                    self._binary,
+                    self._directory,
+                    link=self._link,
+                    backup_unmanaged=self._backup_unmanaged,
+                )
+            else:
+                result = self._activate_with_sudo()
+            self.finished.emit(result)
+        except BaseException as exc:  # noqa: BLE001
+            self._fail(exc)
+
+    def _activate_with_sudo(self) -> version_manager.ActivationResult:
+        if platform.system() == "Windows":
+            raise RuntimeError(
+                "activating /usr/local/bin/ruyi is unsupported on Windows"
+            )
+
+        response: dict[str, str | None] = {"password": None}
+        self.password_requested.emit(
+            f"sudo password is required to update {self._link}.",
+            response,
+        )
+        password = response["password"]
+        if password is None:
+            raise RuntimeError("activation was cancelled")
+
+        command = [
+            "sudo",
+            "-S",
+            "-p",
+            "",
+            sys.executable,
+            "-m",
+            "oh_my_ruyi.version_manager",
+            os.fspath(self._binary),
+            os.fspath(self._directory),
+            os.fspath(self._link),
+        ]
+        if self._backup_unmanaged:
+            command.append("--backup-unmanaged")
+        completed = subprocess.run(
+            command,
+            input=password + "\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            message = completed.stderr.strip() or completed.stdout.strip()
+            raise RuntimeError(
+                message or f"sudo exited with code {completed.returncode}"
+            )
+        try:
+            payload = json.loads(completed.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("activation helper returned invalid output") from exc
+        backup = payload.get("backup_path")
+        return version_manager.ActivationResult(
+            version_manager.read_activation_state(self._link, self._directory),
+            Path(backup) if isinstance(backup, str) else None,
+        )
 
 
 class FlashWorker(_BaseWorker):

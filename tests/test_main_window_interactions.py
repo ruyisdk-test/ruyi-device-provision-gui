@@ -24,15 +24,78 @@ from oh_my_ruyi.workers import FlashWorker
 
 
 @pytest.fixture
-def window(qtbot) -> ProvisionMainWindow:
+def window(qtbot, tmp_path) -> ProvisionMainWindow:
     _app = QApplication.instance() or QApplication([])
     gm = EnvGlobalModeProvider({}, [])
     emitter = LogEmitter()
     logger = QtRuyiLogger(gm, emitter)
     config = GlobalConfig(gm, logger)
-    result = ProvisionMainWindow(config, logger, emitter, auto_start=False)
+    result = ProvisionMainWindow(
+        config,
+        logger,
+        emitter,
+        auto_start=False,
+        versions_directory=tmp_path / "versions",
+        activation_link=tmp_path / "bin" / "ruyi",
+    )
     qtbot.addWidget(result)
     return result
+
+
+def test_feature_tabs_are_in_required_order(window: ProvisionMainWindow) -> None:
+    assert [window._tabs.tabText(i) for i in range(window._tabs.count())] == [
+        "Version Management",
+        "Repo Management",
+        "Device Provision",
+        "Config Management",
+    ]
+    assert window._tabs.currentIndex() == 0
+    assert window._tabs.widget(2) is window._provision_tab
+    assert window._repo_manager_tab.layout() is None
+    assert window._config_manager_tab.layout() is None
+
+
+def test_version_list_reads_downloads_and_active_symlink(
+    window: ProvisionMainWindow,
+) -> None:
+    window._pm_versions_directory.mkdir(parents=True)
+    binary = window._pm_versions_directory / "ruyi-0.50.0"
+    binary.write_bytes(b"ruyi")
+    window._pm_activation_link.parent.mkdir(parents=True)
+    window._pm_activation_link.symlink_to(binary)
+
+    window._refresh_pm_versions(select_version="0.50.0")
+
+    assert window._pm_version_list.count() == 1
+    assert "downloaded" in window._pm_version_list.item(0).text()
+    assert "active" in window._pm_version_list.item(0).text()
+    assert "0.50.0" in window._pm_active_status.text()
+    assert not window._pm_activate_btn.isEnabled()
+
+
+def test_activation_confirms_and_backs_up_unmanaged_command(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+) -> None:
+    window._pm_versions_directory.mkdir(parents=True)
+    binary = window._pm_versions_directory / "ruyi-0.50.0"
+    binary.write_bytes(b"new")
+    window._pm_activation_link.parent.mkdir(parents=True)
+    window._pm_activation_link.write_bytes(b"old")
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: main_window.QMessageBox.StandardButton.Yes,
+    )
+    window._refresh_pm_versions(select_version="0.50.0")
+
+    window._activate_selected_pm_version()
+
+    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    assert window._pm_activation_link.is_symlink()
+    assert window._pm_activation_link.resolve() == binary
+    assert window._pm_activation_link.with_name("ruyi.bak").read_bytes() == b"old"
 
 
 def _contrast_ratio(foreground: str, background: str) -> float:
@@ -199,6 +262,7 @@ def test_flash_revalidates_mount_state(
     monkeypatch,
     tmp_path,
 ) -> None:
+    window._tabs.setCurrentIndex(2)
     target = tmp_path / "target.img"
     target.touch()
     window.state.prepared = SimpleNamespace(
@@ -223,6 +287,7 @@ def test_flash_revalidates_mount_state(
 
 
 def test_failed_download_start_releases_busy_state(window: ProvisionMainWindow) -> None:
+    window._tabs.setCurrentIndex(2)
     window.state.pkg_atoms = ["board-image/test"]
     window._set_step(window.STEP_DOWNLOAD)
     window._download_process = QProcess(window)
@@ -508,6 +573,7 @@ def test_interrupt_flash_requests_worker_cancellation(
 
 
 def test_interrupted_flash_becomes_recoverable(window: ProvisionMainWindow) -> None:
+    window._tabs.setCurrentIndex(2)
     window.state.flash_ret = 0
     window._flash_cancel_requested = True
     window._set_step(window.STEP_FLASH)

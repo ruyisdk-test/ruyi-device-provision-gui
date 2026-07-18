@@ -38,11 +38,12 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QStackedWidget,
     QStyle,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from . import host_storage, ruyi_facade
+from . import host_storage, ruyi_facade, version_manager
 from .qt_logger import LogEmitter, QtRuyiLogger
 from .state import WizardState
 from .workers import (
@@ -50,6 +51,9 @@ from .workers import (
     RepoInitWorker,
     RepoSyncWorker,
     StorageDiscoveryWorker,
+    VersionActivationWorker,
+    VersionCatalogWorker,
+    VersionDownloadWorker,
     run_worker_in_thread,
 )
 
@@ -154,6 +158,8 @@ class ProvisionMainWindow(QMainWindow):
         emitter: LogEmitter,
         *,
         auto_start: bool = True,
+        versions_directory: Path | None = None,
+        activation_link: Path | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -183,6 +189,21 @@ class ProvisionMainWindow(QMainWindow):
         self._current_step = self.STEP_WELCOME
         self._download_ok = False
         self._versions_visited = False
+        self._pm_versions_directory = (
+            version_manager.versions_dir()
+            if versions_directory is None
+            else Path(versions_directory)
+        )
+        self._pm_activation_link = (
+            version_manager.DEFAULT_ACTIVATION_LINK
+            if activation_link is None
+            else Path(activation_link)
+        )
+        self._pm_releases: dict[str, version_manager.RuyiRelease] = {}
+        self._pm_release_order: list[str] = []
+        self._pm_worker = None
+        self._pm_thread = None
+        self._pm_operation = ""
 
         self._device_choices = {}
         self._variant_choices = {}
@@ -197,6 +218,7 @@ class ProvisionMainWindow(QMainWindow):
         self._connect_logs()
         self._set_step(self.STEP_WELCOME)
         if auto_start:
+            self._refresh_pm_catalog()
             self._start_repo_init()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
@@ -226,13 +248,22 @@ class ProvisionMainWindow(QMainWindow):
             event.ignore()
             return
 
+        if self._pm_thread is not None:
+            QMessageBox.warning(
+                self,
+                "Operation in progress",
+                "A package manager version operation is still running. Wait for it to finish before closing this window.",
+            )
+            event.ignore()
+            return
+
         event.accept()
 
     # ------------------------------------------------------------------ UI
 
     def _build_ui(self) -> None:
-        root = QWidget()
-        root_layout = QHBoxLayout(root)
+        provision_tab = QWidget()
+        root_layout = QHBoxLayout(provision_tab)
         root_layout.setContentsMargins(12, 12, 12, 12)
         root_layout.setSpacing(12)
 
@@ -294,8 +325,75 @@ class ProvisionMainWindow(QMainWindow):
         button_row.addWidget(self._next_btn)
         right_layout.addLayout(button_row)
 
-        self.setCentralWidget(root)
+        self._tabs = QTabWidget()
+        self._tabs.setObjectName("featureTabs")
+        self._version_manager_tab = self._build_version_manager_tab()
+        self._repo_manager_tab = QWidget()
+        self._provision_tab = provision_tab
+        self._config_manager_tab = QWidget()
+        self._tabs.addTab(self._version_manager_tab, "Version Management")
+        self._tabs.addTab(self._repo_manager_tab, "Repo Management")
+        self._tabs.addTab(self._provision_tab, "Device Provision")
+        self._tabs.addTab(self._config_manager_tab, "Config Management")
+        self.setCentralWidget(self._tabs)
         self._apply_styles()
+
+    def _build_version_manager_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        title = QLabel("<b>Ruyi Package Manager Versions</b>")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+        description = QLabel(
+            "Download standalone ruyi releases into your home directory and choose "
+            "which version /usr/local/bin/ruyi activates."
+        )
+        description.setWordWrap(True)
+        layout.addWidget(description)
+
+        self._pm_active_status = QLabel()
+        self._pm_active_status.setWordWrap(True)
+        layout.addWidget(self._pm_active_status)
+        self._pm_storage_status = QLabel(
+            f"Downloaded binaries: {self._pm_versions_directory}"
+        )
+        self._pm_storage_status.setWordWrap(True)
+        layout.addWidget(self._pm_storage_status)
+
+        self._pm_version_list = QListWidget()
+        self._pm_version_list.setObjectName("packageManagerVersionList")
+        self._pm_version_list.setAccessibleName("Ruyi package manager versions")
+        self._pm_version_list.currentRowChanged.connect(self._refresh_pm_buttons)
+        layout.addWidget(self._pm_version_list, 1)
+
+        self._pm_status = QLabel(
+            "Showing versions already downloaded on this computer."
+        )
+        self._pm_status.setWordWrap(True)
+        layout.addWidget(self._pm_status)
+
+        buttons = QHBoxLayout()
+        self._pm_refresh_btn = QPushButton("Refresh releases")
+        self._pm_download_btn = QPushButton("Download")
+        self._pm_activate_btn = QPushButton("Activate")
+        self._pm_activate_btn.setObjectName("primaryButton")
+        self._pm_refresh_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        )
+        self._pm_refresh_btn.clicked.connect(self._refresh_pm_catalog)
+        self._pm_download_btn.clicked.connect(self._download_selected_pm_version)
+        self._pm_activate_btn.clicked.connect(self._activate_selected_pm_version)
+        buttons.addStretch()
+        buttons.addWidget(self._pm_refresh_btn)
+        buttons.addWidget(self._pm_download_btn)
+        buttons.addWidget(self._pm_activate_btn)
+        layout.addLayout(buttons)
+
+        self._refresh_pm_versions()
+        return tab
 
     def _build_pages(self) -> None:
         self._welcome_status = QLabel("Preparing the RuyiSDK metadata repository...")
@@ -640,6 +738,86 @@ class ProvisionMainWindow(QMainWindow):
 
     # -------------------------------------------------------------- actions
 
+    def _refresh_pm_catalog(self) -> None:
+        if self._pm_thread is not None:
+            return
+        self._pm_operation = "refresh"
+        self._pm_status.setText("Checking the latest ruyi releases...")
+        self._set_status_kind(self._pm_status, None)
+        self._pm_worker = VersionCatalogWorker()
+        self._pm_worker.finished.connect(self._on_pm_catalog_ready)
+        self._pm_worker.failed.connect(self._on_pm_worker_failed)
+        self._pm_thread = run_worker_in_thread(self._pm_worker)
+        self._refresh_pm_buttons()
+
+    def _download_selected_pm_version(self) -> None:
+        version = self._selected_pm_version()
+        if version is None or self._pm_thread is not None:
+            return
+        release = self._pm_releases.get(version)
+        if release is None:
+            return
+        self._pm_operation = "download"
+        self._pm_status.setText(f"Downloading ruyi {version}...")
+        self._set_status_kind(self._pm_status, None)
+        self._pm_worker = VersionDownloadWorker(
+            release,
+            self._pm_versions_directory,
+        )
+        self._pm_worker.finished.connect(self._on_pm_download_finished)
+        self._pm_worker.failed.connect(self._on_pm_worker_failed)
+        self._pm_thread = run_worker_in_thread(self._pm_worker)
+        self._refresh_pm_buttons()
+
+    def _activate_selected_pm_version(self) -> None:
+        version = self._selected_pm_version()
+        if version is None or self._pm_thread is not None:
+            return
+        binary = version_manager.binary_path(version, self._pm_versions_directory)
+        if not binary.is_file():
+            return
+
+        state = version_manager.read_activation_state(
+            self._pm_activation_link,
+            self._pm_versions_directory,
+        )
+        backup_unmanaged = state.exists and not state.managed
+        if backup_unmanaged:
+            existing = (
+                f"a symbolic link to {state.target}"
+                if state.is_symlink
+                else "an existing file"
+            )
+            answer = QMessageBox.question(
+                self,
+                "Replace existing ruyi command?",
+                f"{self._pm_activation_link} is {existing} and is not managed by "
+                "Oh My Ruyi.\n\nIf you continue, it will be preserved as a .bak "
+                "backup before the selected version is activated.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        self._pm_operation = "activate"
+        self._pm_status.setText(f"Activating ruyi {version}...")
+        self._set_status_kind(self._pm_status, None)
+        self._pm_worker = VersionActivationWorker(
+            binary,
+            self._pm_versions_directory,
+            self._pm_activation_link,
+            backup_unmanaged=backup_unmanaged,
+        )
+        self._pm_worker.finished.connect(self._on_pm_activation_finished)
+        self._pm_worker.failed.connect(self._on_pm_worker_failed)
+        self._pm_worker.password_requested.connect(
+            self._on_pm_password_requested,
+            Qt.ConnectionType.BlockingQueuedConnection,
+        )
+        self._pm_thread = run_worker_in_thread(self._pm_worker)
+        self._refresh_pm_buttons()
+
     def _start_repo_init(self) -> None:
         self._next_btn.setEnabled(False)
         self._worker = RepoInitWorker(self.state.config)
@@ -920,6 +1098,59 @@ class ProvisionMainWindow(QMainWindow):
 
     # --------------------------------------------------------------- slots
 
+    def _on_pm_catalog_ready(self, catalog: version_manager.ReleaseCatalog) -> None:
+        self._pm_releases = {}
+        self._pm_release_order = []
+        for release in catalog.releases:
+            if release.version not in self._pm_releases:
+                self._pm_release_order.append(release.version)
+            self._pm_releases[release.version] = release
+        self._cleanup_pm_thread()
+        self._pm_status.setText(
+            f"Release information loaded from {catalog.source_url}."
+        )
+        self._set_status_kind(self._pm_status, "success")
+        self._refresh_pm_versions()
+
+    def _on_pm_download_finished(self, path: Path) -> None:
+        version = path.name.removeprefix("ruyi-")
+        self._cleanup_pm_thread()
+        self._pm_status.setText(f"Downloaded ruyi {version} to {path}.")
+        self._set_status_kind(self._pm_status, "success")
+        self._refresh_pm_versions(select_version=version)
+
+    def _on_pm_activation_finished(
+        self,
+        result: version_manager.ActivationResult,
+    ) -> None:
+        self._cleanup_pm_thread()
+        message = (
+            f"Activated ruyi {result.state.version} at {self._pm_activation_link}."
+        )
+        if result.backup_path is not None:
+            message += f" Previous command backed up to {result.backup_path}."
+        self._pm_status.setText(message)
+        self._set_status_kind(self._pm_status, "success")
+        self._refresh_pm_versions(select_version=result.state.version)
+
+    def _on_pm_worker_failed(self, msg: str) -> None:
+        operation = self._pm_operation
+        self._cleanup_pm_thread()
+        self._pm_status.setText(f"Failed: {msg}")
+        self._set_status_kind(self._pm_status, "error")
+        self._refresh_pm_versions()
+        if operation != "refresh":
+            QMessageBox.critical(self, "Operation failed", msg)
+
+    def _on_pm_password_requested(self, prompt: str, response: dict) -> None:
+        password, ok = QInputDialog.getText(
+            self,
+            "sudo password required",
+            prompt,
+            QLineEdit.EchoMode.Password,
+        )
+        response["password"] = password if ok else None
+
     def _on_repo_ready(self, mr) -> None:
         self.state.mr = mr
         self._welcome_status.setText("RuyiSDK metadata repository is ready.")
@@ -1099,6 +1330,121 @@ class ProvisionMainWindow(QMainWindow):
             self._thread.deleteLater()
         self._thread = None
         self._worker = None
+
+    def _cleanup_pm_thread(self) -> None:
+        if self._pm_thread is not None:
+            self._pm_thread.quit()
+            self._pm_thread.wait()
+            self._pm_thread.deleteLater()
+        self._pm_thread = None
+        self._pm_worker = None
+        self._pm_operation = ""
+
+    def _selected_pm_version(self) -> str | None:
+        item = self._pm_version_list.currentItem()
+        if item is None:
+            return None
+        version = item.data(Qt.ItemDataRole.UserRole)
+        return version if isinstance(version, str) else None
+
+    def _refresh_pm_versions(self, *, select_version: str | None = None) -> None:
+        previous = select_version or self._selected_pm_version()
+        try:
+            installed = {
+                item.version: item
+                for item in version_manager.list_installed_versions(
+                    self._pm_versions_directory
+                )
+            }
+            active = version_manager.read_activation_state(
+                self._pm_activation_link,
+                self._pm_versions_directory,
+            )
+        except OSError as exc:
+            self._pm_status.setText(f"Failed to inspect installed versions: {exc}")
+            self._set_status_kind(self._pm_status, "error")
+            installed = {}
+            active = version_manager.ActivationState(
+                self._pm_activation_link,
+                False,
+                False,
+                False,
+                None,
+                None,
+            )
+
+        versions = list(self._pm_release_order)
+        versions.extend(version for version in installed if version not in versions)
+        self._pm_version_list.blockSignals(True)
+        self._pm_version_list.clear()
+        selected_row = -1
+        for row, version in enumerate(versions):
+            release = self._pm_releases.get(version)
+            details: list[str] = []
+            if release is not None:
+                details.append(release.channel)
+            if version in installed:
+                details.append("downloaded")
+            if active.managed and active.version == version:
+                details.append("active")
+            text = version
+            if details:
+                text += " | " + " | ".join(details)
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, version)
+            self._pm_version_list.addItem(item)
+            if version == previous:
+                selected_row = row
+        self._pm_version_list.setCurrentRow(selected_row)
+        self._pm_version_list.blockSignals(False)
+
+        if active.managed:
+            self._pm_active_status.setText(
+                f"Active: ruyi {active.version} -> {active.target}"
+            )
+            self._set_status_kind(self._pm_active_status, "success")
+        elif active.exists and active.is_symlink:
+            self._pm_active_status.setText(
+                f"Not managed: {self._pm_activation_link} -> {active.target}"
+            )
+            self._set_status_kind(self._pm_active_status, "warning")
+        elif active.exists:
+            self._pm_active_status.setText(
+                f"Not managed: {self._pm_activation_link} is an existing file."
+            )
+            self._set_status_kind(self._pm_active_status, "warning")
+        else:
+            self._pm_active_status.setText(
+                f"No active ruyi command at {self._pm_activation_link}."
+            )
+            self._set_status_kind(self._pm_active_status, None)
+        self._refresh_pm_buttons()
+
+    def _refresh_pm_buttons(self, _row: int | None = None) -> None:
+        busy = self._pm_thread is not None
+        version = self._selected_pm_version()
+        installed = (
+            version_manager.binary_path(version, self._pm_versions_directory).is_file()
+            if version is not None
+            else False
+        )
+        try:
+            active_version = version_manager.read_activation_state(
+                self._pm_activation_link,
+                self._pm_versions_directory,
+            ).version
+        except OSError:
+            active_version = None
+        self._pm_refresh_btn.setEnabled(not busy)
+        self._pm_download_btn.setEnabled(
+            not busy
+            and version is not None
+            and version in self._pm_releases
+            and not installed
+        )
+        self._pm_activate_btn.setEnabled(
+            not busy and installed and version != active_version
+        )
 
     def _set_step(self, step: int) -> None:
         if self._current_step == self.STEP_REVIEW and step != self.STEP_REVIEW:
