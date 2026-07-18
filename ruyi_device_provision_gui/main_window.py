@@ -971,7 +971,11 @@ class ProvisionMainWindow(QMainWindow):
             item = self._steps.item(row)
             flags = Qt.ItemFlag.ItemIsSelectable
             if row == self._current_step or (
-                row < self._current_step and self._can_open_step(row)
+                (
+                    row < self._current_step
+                    or self._is_completed_flash_history_step(row)
+                )
+                and self._can_open_step(row)
             ):
                 flags |= Qt.ItemFlag.ItemIsEnabled
             item.setFlags(flags)
@@ -1032,7 +1036,10 @@ class ProvisionMainWindow(QMainWindow):
     def _on_step_clicked(self, row: int) -> None:
         if row < 0 or row == self._current_step:
             return
-        if self._is_busy() or row > self._current_step:
+        if self._is_busy() or (
+            row > self._current_step
+            and not self._is_completed_flash_history_step(row)
+        ):
             self._steps.setCurrentRow(self._current_step)
             return
         if self._can_open_step(row):
@@ -1074,10 +1081,13 @@ class ProvisionMainWindow(QMainWindow):
         if step == self.STEP_REVIEW:
             return self._download_ok and self.state.prepared is not None
         if step == self.STEP_FLASH:
-            return False
+            return self.state.flash_ret is not None
         if step == self.STEP_DONE:
-            return self.state.flash_ret is not None or (self.state.combo is not None and not self.state.pkg_atoms)
+            return self.state.flash_ret == 0 or (self.state.combo is not None and not self.state.pkg_atoms)
         return False
+
+    def _is_completed_flash_history_step(self, step: int) -> bool:
+        return self.state.flash_ret == 0 and step in {self.STEP_FLASH, self.STEP_DONE}
 
     def _review_complete_if_possible(self) -> bool:
         if self.state.prepared is None:

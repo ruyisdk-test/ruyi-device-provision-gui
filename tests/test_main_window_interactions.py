@@ -5,7 +5,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QProcess, QTimer
+from PySide6.QtCore import QProcess, QTimer, Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 from ruyi.config import GlobalConfig
@@ -406,6 +406,19 @@ def test_successful_flash_advances_to_done_and_can_return_to_flash(
     assert window._current_step == window.STEP_FLASH
     assert window._flash_status.text() == "Flash complete."
     assert window._flash_log.toPlainText() == "fastboot flash complete"
+    assert window._next_btn.isEnabled()
+    assert window._steps.item(window.STEP_DONE).flags() & Qt.ItemFlag.ItemIsEnabled
+
+    window._go_next()
+
+    assert window._current_step == window.STEP_DONE
+    assert window._steps.item(window.STEP_FLASH).flags() & Qt.ItemFlag.ItemIsEnabled
+
+    window._steps.setCurrentRow(window.STEP_FLASH)
+    assert window._current_step == window.STEP_FLASH
+
+    window._steps.setCurrentRow(window.STEP_DONE)
+    assert window._current_step == window.STEP_DONE
 
 
 def test_failed_flash_stays_on_flash_page(window: ProvisionMainWindow) -> None:
@@ -418,6 +431,9 @@ def test_failed_flash_stays_on_flash_page(window: ProvisionMainWindow) -> None:
     assert window.state.flash_ret == 1
     assert window._flash_status.text() == "Flash failed (exit code 1)."
     assert window._flash_recoverable
+    assert not (
+        window._steps.item(window.STEP_DONE).flags() & Qt.ItemFlag.ItemIsEnabled
+    )
 
 
 def test_unflashed_done_back_returns_to_fresh_review(
