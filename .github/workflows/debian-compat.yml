@@ -1,0 +1,112 @@
+name: Debian compatibility
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Debian ${{ matrix.debian.version }} / system Python
+    runs-on: ubuntu-latest
+    container:
+      image: debian:${{ matrix.debian.version }}-slim
+    env:
+      UV_PYTHON: /usr/bin/python3
+      UV_PYTHON_DOWNLOADS: never
+    strategy:
+      fail-fast: false
+      matrix:
+        debian:
+          - version: "12"
+            glib_package: libglib2.0-0
+          - version: "13"
+            glib_package: libglib2.0-0t64
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install --no-install-recommends -y \
+            ca-certificates \
+            curl \
+            git \
+            libdbus-1-3 \
+            libegl1 \
+            libfontconfig1 \
+            libgl1 \
+            ${{ matrix.debian.glib_package }} \
+            libx11-6 \
+            libx11-xcb1 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcb-sync1 \
+            libxcb-xfixes0 \
+            libxcb-xkb1 \
+            libxcb1 \
+            libxext6 \
+            libxkbcommon-x11-0 \
+            libxkbcommon0 \
+            libxrender1 \
+            python3 \
+            xauth \
+            xvfb
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync with Debian system Python
+        run: uv sync --locked --python /usr/bin/python3 --group dev
+
+      - name: Report compatibility versions
+        run: |
+          .venv/bin/python - <<'PY'
+          import platform
+          import sys
+
+          import PySide6
+          from PySide6.QtCore import qVersion
+
+          print(platform.platform())
+          print(sys.version)
+          print("PySide6", PySide6.__version__)
+          print("Qt", qVersion())
+          PY
+          ldd --version
+
+      - name: Check lockfile
+        run: uv lock --check
+
+      - name: Build package
+        run: uv build
+
+      - name: Run offscreen tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run --locked --python /usr/bin/python3 python -m pytest -q
+
+      - name: Check xcb platform plugin
+        run: |
+          xvfb-run -a uv run --locked --python /usr/bin/python3 python - <<'PY'
+          from PySide6.QtWidgets import QApplication, QWidget
+
+          app = QApplication([])
+          window = QWidget()
+          window.show()
+          app.processEvents()
+          assert window.isVisible()
+          print("Qt platform:", app.platformName())
+          PY
