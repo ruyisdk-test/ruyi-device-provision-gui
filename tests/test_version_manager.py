@@ -166,3 +166,43 @@ def test_existing_backup_is_not_overwritten(tmp_path: Path) -> None:
     (tmp_path / "ruyi.bak").write_bytes(b"previous backup")
 
     assert version_manager.next_backup_path(link) == tmp_path / "ruyi.bak.1"
+
+
+def test_telemetry_setup_applies_choice_then_runs_status(tmp_path: Path) -> None:
+    binary = tmp_path / "ruyi-0.50.0"
+    binary.write_bytes(b"ruyi")
+    calls: list[tuple[Path, tuple[str, ...], float]] = []
+
+    def run_interactive(path: Path, answers: tuple[str, ...], timeout: float) -> str:
+        calls.append((path, answers, timeout))
+        return "first-run output\r\n\x1b[32mlocal\x1b[0m\r\n"
+
+    result = version_manager.run_telemetry_setup(
+        binary,
+        "local",
+        timeout=12,
+        run_interactive=run_interactive,
+    )
+
+    assert calls == [(binary, ("n", "n"), 12)]
+    assert result.mode == "local"
+    assert result.status == "local"
+
+
+def test_telemetry_setup_surfaces_command_failure(tmp_path: Path) -> None:
+    binary = tmp_path / "ruyi-0.50.0"
+    binary.write_bytes(b"ruyi")
+
+    def run_interactive(
+        _path: Path,
+        _answers: tuple[str, ...],
+        _timeout: float,
+    ) -> str:
+        raise version_manager.VersionManagerError("permission denied")
+
+    with pytest.raises(version_manager.VersionManagerError, match="permission denied"):
+        version_manager.run_telemetry_setup(
+            binary,
+            "optout",
+            run_interactive=run_interactive,
+        )

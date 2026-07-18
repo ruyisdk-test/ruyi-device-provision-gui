@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import platform
+import pty
 import re
+import select
 import shutil
+import subprocess
 import tempfile
+import time
 import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Callable
+from typing import BinaryIO, Callable, Literal
 
 PRIMARY_RELEASES_URL = "https://api.ruyisdk.cn/releases/latest-pm"
 FALLBACK_RELEASES_URL = (
@@ -77,6 +82,15 @@ class ActivationState:
 class ActivationResult:
     state: ActivationState
     backup_path: Path | None
+
+
+TelemetryMode = Literal["consent", "local", "optout"]
+
+
+@dataclass(frozen=True, slots=True)
+class TelemetrySetupResult:
+    mode: TelemetryMode
+    status: str
 
 
 def versions_dir(home: Path | None = None) -> Path:
@@ -316,6 +330,99 @@ def activate_version(
         raise
 
     return ActivationResult(read_activation_state(link, directory), backup_path)
+
+
+def run_telemetry_setup(
+    binary: Path,
+    mode: TelemetryMode,
+    *,
+    timeout: float = 30,
+    run_interactive: Callable[[Path, tuple[str, ...], float], str] | None = None,
+) -> TelemetrySetupResult:
+    """Run first-install ``telemetry status`` with the graphical choices."""
+    binary = Path(binary)
+    if not binary.is_file():
+        raise VersionManagerError(f"ruyi binary does not exist: {binary}")
+    answers = {
+        "consent": ("y",),
+        "local": ("n", "n"),
+        "optout": ("n", "y"),
+    }[mode]
+    runner = run_interactive or _run_interactive_telemetry_status
+    output = runner(binary, answers, timeout)
+    status = _telemetry_status_from_output(output, mode)
+    return TelemetrySetupResult(mode, status)
+
+
+def _run_interactive_telemetry_status(
+    binary: Path,
+    answers: tuple[str, ...],
+    timeout: float,
+) -> str:
+    """Give ruyi a TTY so its normal first-run OOBE executes."""
+    master_fd, slave_fd = pty.openpty()
+    process: subprocess.Popen[bytes] | None = None
+    chunks: list[bytes] = []
+    try:
+        process = subprocess.Popen(
+            [os.fspath(binary), "telemetry", "status"],
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            close_fds=True,
+            start_new_session=True,
+        )
+        os.close(slave_fd)
+        slave_fd = -1
+        os.write(master_fd, ("\n".join(answers) + "\n").encode())
+        deadline = time.monotonic() + timeout
+        while True:
+            if time.monotonic() >= deadline:
+                process.kill()
+                process.wait()
+                raise VersionManagerError("ruyi telemetry status timed out")
+            readable, _, _ = select.select([master_fd], [], [], 0.1)
+            if readable:
+                try:
+                    chunk = os.read(master_fd, 4096)
+                except OSError as exc:
+                    if exc.errno == errno.EIO or process.poll() is not None:
+                        break
+                    raise VersionManagerError(
+                        f"failed to read ruyi telemetry output: {exc}"
+                    ) from exc
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            if process.poll() is not None and not readable:
+                break
+        return_code = process.wait()
+        output = b"".join(chunks).decode(errors="replace")
+        if return_code != 0:
+            raise VersionManagerError(
+                output.strip()
+                or f"ruyi telemetry status exited with code {return_code}"
+            )
+        return output
+    finally:
+        os.close(master_fd)
+        if slave_fd >= 0:
+            os.close(slave_fd)
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.wait()
+
+
+def _telemetry_status_from_output(output: str, mode: TelemetryMode) -> str:
+    plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output).replace("\r", "")
+    statuses = [
+        line.strip()
+        for line in plain.splitlines()
+        if line.strip() in {"on", "local", "off"}
+    ]
+    if statuses:
+        return statuses[-1]
+    return {"consent": "on", "local": "local", "optout": "off"}[mode]
 
 
 def _main(argv: list[str] | None = None) -> int:

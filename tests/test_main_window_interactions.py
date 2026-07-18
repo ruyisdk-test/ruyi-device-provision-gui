@@ -30,6 +30,9 @@ def window(qtbot, tmp_path) -> ProvisionMainWindow:
     emitter = LogEmitter()
     logger = QtRuyiLogger(gm, emitter)
     config = GlobalConfig(gm, logger)
+    telemetry_installation = tmp_path / "state" / "installation.json"
+    telemetry_installation.parent.mkdir(parents=True)
+    telemetry_installation.write_text("{}")
     result = ProvisionMainWindow(
         config,
         logger,
@@ -37,6 +40,7 @@ def window(qtbot, tmp_path) -> ProvisionMainWindow:
         auto_start=False,
         versions_directory=tmp_path / "versions",
         activation_link=tmp_path / "bin" / "ruyi",
+        telemetry_installation=telemetry_installation,
     )
     qtbot.addWidget(result)
     return result
@@ -96,6 +100,80 @@ def test_activation_confirms_and_backs_up_unmanaged_command(
     assert window._pm_activation_link.is_symlink()
     assert window._pm_activation_link.resolve() == binary
     assert window._pm_activation_link.with_name("ruyi.bak").read_bytes() == b"old"
+
+
+@pytest.mark.parametrize(
+    ("answers", "expected"),
+    [
+        ([main_window.QMessageBox.StandardButton.Yes], "consent"),
+        (
+            [
+                main_window.QMessageBox.StandardButton.No,
+                main_window.QMessageBox.StandardButton.Yes,
+            ],
+            "optout",
+        ),
+        (
+            [
+                main_window.QMessageBox.StandardButton.No,
+                main_window.QMessageBox.StandardButton.No,
+            ],
+            "local",
+        ),
+    ],
+)
+def test_first_install_telemetry_choices_are_graphical(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    answers: list,
+    expected: str,
+) -> None:
+    remaining = iter(answers)
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: next(remaining),
+    )
+
+    assert window._ask_for_pm_telemetry_mode() == expected
+
+
+def test_first_install_runs_selected_mode_and_telemetry_status(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+    tmp_path,
+) -> None:
+    window._pm_telemetry_installation.unlink()
+    log = tmp_path / "telemetry-commands.log"
+    binary = window._pm_versions_directory / "ruyi-0.50.0"
+    binary.parent.mkdir(parents=True)
+    binary.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"$*\" >> '{log}'\n"
+        "read upload\n"
+        "if [ \"$upload\" = 'y' ]; then printf 'on\\n'; exit 0; fi\n"
+        "read optout\n"
+        "if [ \"$optout\" = 'y' ]; then printf 'off\\n'; else printf 'local\\n'; fi\n"
+    )
+    binary.chmod(0o755)
+    answers = iter(
+        [
+            main_window.QMessageBox.StandardButton.No,
+            main_window.QMessageBox.StandardButton.No,
+        ]
+    )
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: next(answers),
+    )
+
+    window._maybe_start_pm_telemetry(binary)
+
+    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    assert log.read_text().splitlines() == ["telemetry status"]
+    assert window._pm_status.text() == "Telemetry mode: local"
 
 
 def _contrast_ratio(foreground: str, background: str) -> float:

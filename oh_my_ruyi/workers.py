@@ -211,6 +211,28 @@ class VersionActivationWorker(_BaseWorker):
         )
 
 
+class TelemetrySetupWorker(_BaseWorker):
+    """Apply the user's first-install telemetry choice using the activated ruyi."""
+
+    def __init__(
+        self,
+        binary: Path,
+        mode: version_manager.TelemetryMode,
+    ) -> None:
+        super().__init__()
+        self._binary = binary
+        self._mode = mode
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(
+                version_manager.run_telemetry_setup(self._binary, self._mode)
+            )
+        except BaseException as exc:  # noqa: BLE001
+            self._fail(exc)
+
+
 class FlashWorker(_BaseWorker):
     """Run every flashing strategy in priority order."""
 

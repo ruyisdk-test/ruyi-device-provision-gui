@@ -51,6 +51,7 @@ from .workers import (
     RepoInitWorker,
     RepoSyncWorker,
     StorageDiscoveryWorker,
+    TelemetrySetupWorker,
     VersionActivationWorker,
     VersionCatalogWorker,
     VersionDownloadWorker,
@@ -160,6 +161,7 @@ class ProvisionMainWindow(QMainWindow):
         auto_start: bool = True,
         versions_directory: Path | None = None,
         activation_link: Path | None = None,
+        telemetry_installation: Path | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -199,11 +201,17 @@ class ProvisionMainWindow(QMainWindow):
             if activation_link is None
             else Path(activation_link)
         )
+        self._pm_telemetry_installation = (
+            version_manager.telemetry_installation_path()
+            if telemetry_installation is None
+            else Path(telemetry_installation)
+        )
         self._pm_releases: dict[str, version_manager.RuyiRelease] = {}
         self._pm_release_order: list[str] = []
         self._pm_worker = None
         self._pm_thread = None
         self._pm_operation = ""
+        self._pm_first_run_check_pending = auto_start
 
         self._device_choices = {}
         self._variant_choices = {}
@@ -1111,6 +1119,7 @@ class ProvisionMainWindow(QMainWindow):
         )
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions()
+        self._run_pending_pm_first_run_check()
 
     def _on_pm_download_finished(self, path: Path) -> None:
         version = path.name.removeprefix("ruyi-")
@@ -1132,6 +1141,17 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_status.setText(message)
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions(select_version=result.state.version)
+        if result.state.target is not None:
+            self._maybe_start_pm_telemetry(result.state.target)
+
+    def _on_pm_telemetry_finished(
+        self,
+        result: version_manager.TelemetrySetupResult,
+    ) -> None:
+        self._cleanup_pm_thread()
+        self._pm_status.setText(f"Telemetry mode: {result.status}")
+        self._set_status_kind(self._pm_status, "success")
+        self._refresh_pm_versions()
 
     def _on_pm_worker_failed(self, msg: str) -> None:
         operation = self._pm_operation
@@ -1141,6 +1161,8 @@ class ProvisionMainWindow(QMainWindow):
         self._refresh_pm_versions()
         if operation != "refresh":
             QMessageBox.critical(self, "Operation failed", msg)
+        else:
+            self._run_pending_pm_first_run_check()
 
     def _on_pm_password_requested(self, prompt: str, response: dict) -> None:
         password, ok = QInputDialog.getText(
@@ -1150,6 +1172,61 @@ class ProvisionMainWindow(QMainWindow):
             QLineEdit.EchoMode.Password,
         )
         response["password"] = password if ok else None
+
+    def _run_pending_pm_first_run_check(self) -> None:
+        if not self._pm_first_run_check_pending:
+            return
+        self._pm_first_run_check_pending = False
+        self._maybe_start_pm_telemetry()
+
+    def _maybe_start_pm_telemetry(self, binary: Path | None = None) -> None:
+        if self._pm_telemetry_installation.exists() or self._pm_thread is not None:
+            return
+        if binary is None:
+            state = version_manager.read_activation_state(
+                self._pm_activation_link,
+                self._pm_versions_directory,
+            )
+            if not state.managed or state.target is None:
+                return
+            binary = state.target
+        if not binary.is_file():
+            return
+
+        mode = self._ask_for_pm_telemetry_mode()
+        self._pm_operation = "telemetry"
+        self._pm_status.setText("Saving telemetry preference and checking status...")
+        self._set_status_kind(self._pm_status, None)
+        self._pm_worker = TelemetrySetupWorker(binary, mode)
+        self._pm_worker.finished.connect(self._on_pm_telemetry_finished)
+        self._pm_worker.failed.connect(self._on_pm_worker_failed)
+        self._pm_thread = run_worker_in_thread(self._pm_worker)
+        self._refresh_pm_buttons()
+
+    def _ask_for_pm_telemetry_mode(self) -> version_manager.TelemetryMode:
+        upload = QMessageBox.question(
+            self,
+            "Ruyi telemetry",
+            "This appears to be the first ruyi installation. RuyiSDK sends a "
+            "one-time anonymous installation report and keeps additional usage data "
+            "on this computer by default. With your permission, non-tracking usage "
+            "data will also be uploaded periodically to RuyiSDK team-managed servers "
+            "in the Chinese mainland.\n\nAllow periodic telemetry uploads?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if upload == QMessageBox.StandardButton.Yes:
+            return "consent"
+
+        opt_out = QMessageBox.question(
+            self,
+            "Ruyi telemetry",
+            "Do you want to opt out of telemetry collection entirely? Choose No "
+            "to keep telemetry data locally without uploading it.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return "optout" if opt_out == QMessageBox.StandardButton.Yes else "local"
 
     def _on_repo_ready(self, mr) -> None:
         self.state.mr = mr
