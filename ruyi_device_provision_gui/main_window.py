@@ -892,7 +892,11 @@ class ProvisionMainWindow(QMainWindow):
         self._flash_recoverable = ret != 0
         self._flash_status.setText("Flash complete." if ret == 0 else f"Flash failed (exit code {ret}).")
         self._cleanup_thread()
-        self._refresh_buttons()
+        if ret == 0:
+            self._populate_done()
+            self._set_step(self.STEP_DONE)
+        else:
+            self._refresh_buttons()
 
     def _on_worker_failed(self, msg: str) -> None:
         QMessageBox.critical(self, "Operation failed", msg)
@@ -1258,7 +1262,9 @@ class ProvisionMainWindow(QMainWindow):
             else:
                 prev = self.STEP_DOWNLOAD
         elif step == self.STEP_DONE:
-            if self.state.pkg_atoms and self.state.prepared is not None:
+            if self.state.flash_ret is not None:
+                prev = self.STEP_FLASH
+            elif self.state.pkg_atoms and self.state.prepared is not None:
                 self._populate_review()
                 prev = self.STEP_REVIEW
             else:

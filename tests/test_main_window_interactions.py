@@ -385,7 +385,45 @@ def test_flash_rejects_replaced_target(
     assert "has changed" in window._storage_error.text()
 
 
-def test_done_back_returns_to_fresh_review(window: ProvisionMainWindow, monkeypatch) -> None:
+def test_successful_flash_advances_to_done_and_can_return_to_flash(
+    window: ProvisionMainWindow,
+) -> None:
+    window.state.pkg_atoms = ["image/pkg"]
+    window.state.prepared = SimpleNamespace(requested_host_blkdevs=[], needed_cmds=set())
+    window._flash_log.setPlainText("fastboot flash complete")
+    window._set_step(window.STEP_FLASH)
+
+    window._on_flash_finished(0)
+
+    assert window._current_step == window.STEP_DONE
+    assert window.state.flash_ret == 0
+    assert window._done_label.text() == (
+        "It seems the flashing has finished without errors. Happy hacking!"
+    )
+
+    window._go_back()
+
+    assert window._current_step == window.STEP_FLASH
+    assert window._flash_status.text() == "Flash complete."
+    assert window._flash_log.toPlainText() == "fastboot flash complete"
+
+
+def test_failed_flash_stays_on_flash_page(window: ProvisionMainWindow) -> None:
+    window.state.prepared = SimpleNamespace(requested_host_blkdevs=[], needed_cmds=set())
+    window._set_step(window.STEP_FLASH)
+
+    window._on_flash_finished(1)
+
+    assert window._current_step == window.STEP_FLASH
+    assert window.state.flash_ret == 1
+    assert window._flash_status.text() == "Flash failed (exit code 1)."
+    assert window._flash_recoverable
+
+
+def test_unflashed_done_back_returns_to_fresh_review(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
     window.state.pkg_atoms = ["image/pkg"]
     window.state.prepared = SimpleNamespace(requested_host_blkdevs=[], needed_cmds=set())
     window._proceed_cb.setChecked(True)
