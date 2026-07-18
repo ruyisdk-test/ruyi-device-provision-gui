@@ -48,6 +48,7 @@ def window(qtbot, tmp_path) -> ProvisionMainWindow:
         versions_directory=tmp_path / "versions",
         activation_link=tmp_path / "bin" / "ruyi",
         telemetry_installation=telemetry_installation,
+        system_ruyi_config=tmp_path / "etc" / "ruyi" / "config.toml",
     )
     qtbot.addWidget(result)
     return result
@@ -114,6 +115,98 @@ def test_version_tables_separate_available_and_downloaded_versions(
     assert not window._pm_delete_btn.isEnabled()
     assert window._pm_deactivate_btn.isEnabled()
     assert "PATH ready" in window._pm_path_status.text()
+
+
+def test_external_system_management_keeps_tables_visible_but_disables_controls(
+    qtbot,
+    tmp_path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    gm = EnvGlobalModeProvider({}, [])
+    emitter = LogEmitter()
+    logger = QtRuyiLogger(gm, emitter)
+    config = GlobalConfig(gm, logger)
+    system_config = tmp_path / "config.toml"
+    system_config.write_text("[installation]\nexternally_managed = true\n")
+    versions = tmp_path / "versions"
+    versions.mkdir()
+    (versions / "ruyi-0.50.0").write_bytes(_x86_64_elf())
+    telemetry_installation = tmp_path / "state" / "installation.json"
+    telemetry_installation.parent.mkdir()
+    telemetry_installation.write_text("{}")
+    window = ProvisionMainWindow(
+        config,
+        logger,
+        emitter,
+        auto_start=False,
+        versions_directory=versions,
+        activation_link=tmp_path / "bin" / "ruyi",
+        telemetry_installation=telemetry_installation,
+        system_ruyi_config=system_config,
+    )
+    qtbot.addWidget(window)
+    window._pm_catalog_releases = [
+        version_manager.RuyiRelease(
+            "0.50.0",
+            "stable",
+            "2026-06-23T13:06:10Z",
+            ("https://example.test/ruyi",),
+            "x86_64",
+        )
+    ]
+
+    window._refresh_pm_versions()
+
+    assert window._pm_available_table.rowCount() == 1
+    assert window._pm_installed_table.rowCount() == 1
+    assert not window._pm_available_table.isEnabled()
+    assert not window._pm_installed_table.isEnabled()
+    assert not window._pm_refresh_btn.isEnabled()
+    assert not window._pm_download_btn.isEnabled()
+    assert not window._pm_add_url_btn.isEnabled()
+    assert not window._pm_local_refresh_btn.isEnabled()
+    assert not window._pm_activate_btn.isEnabled()
+    assert not window._pm_delete_btn.isEnabled()
+    assert not window._pm_deactivate_btn.isEnabled()
+    assert not window._pm_browse_btn.isEnabled()
+    assert (
+        window._pm_path_status.text()
+        == "Version management issue: this system's ruyi package manager is "
+        "configured to have its version managed by the system package manager."
+    )
+    assert window._pm_path_status.property("statusKind") == "error"
+
+
+def test_loaded_ruyi_config_keeps_external_management_locked(
+    qtbot,
+    tmp_path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    gm = EnvGlobalModeProvider({}, [])
+    emitter = LogEmitter()
+    logger = QtRuyiLogger(gm, emitter)
+    config = GlobalConfig(gm, logger)
+    config.is_installation_externally_managed = True
+    system_config = tmp_path / "removed-config.toml"
+    window = ProvisionMainWindow(
+        config,
+        logger,
+        emitter,
+        auto_start=False,
+        versions_directory=tmp_path / "versions",
+        activation_link=tmp_path / "bin" / "ruyi",
+        telemetry_installation=tmp_path / "installation.json",
+        system_ruyi_config=system_config,
+    )
+    qtbot.addWidget(window)
+
+    window._refresh_pm_versions()
+
+    assert not system_config.exists()
+    assert window._pm_externally_managed
+    assert not window._pm_available_table.isEnabled()
+    assert not window._pm_refresh_btn.isEnabled()
+    assert "system package manager" in window._pm_path_status.text()
 
 
 def test_browse_opens_selected_binary_directory(

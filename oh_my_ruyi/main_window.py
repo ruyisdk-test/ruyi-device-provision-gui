@@ -191,6 +191,7 @@ class ProvisionMainWindow(QMainWindow):
         versions_directory: Path | None = None,
         activation_link: Path | None = None,
         telemetry_installation: Path | None = None,
+        system_ruyi_config: Path | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -234,6 +235,17 @@ class ProvisionMainWindow(QMainWindow):
             version_manager.telemetry_installation_path()
             if telemetry_installation is None
             else Path(telemetry_installation)
+        )
+        self._pm_system_config = (
+            version_manager.DEFAULT_SYSTEM_CONFIG
+            if system_ruyi_config is None
+            else Path(system_ruyi_config)
+        )
+        self._pm_config_externally_managed = bool(
+            getattr(config, "is_installation_externally_managed", False)
+        )
+        self._pm_externally_managed = self._pm_config_externally_managed or (
+            version_manager.is_ruyi_externally_managed(self._pm_system_config)
         )
         self._pm_catalog_releases: list[version_manager.RuyiRelease] = []
         self._pm_custom_releases: list[version_manager.RuyiRelease] = []
@@ -1749,6 +1761,9 @@ class ProvisionMainWindow(QMainWindow):
         select_available_url: str | None = None,
         select_installed_version: str | None = None,
     ) -> None:
+        self._pm_externally_managed = self._pm_config_externally_managed or (
+            version_manager.is_ruyi_externally_managed(self._pm_system_config)
+        )
         selected_release = self._selected_pm_release()
         previous_available_url = select_available_url or (
             selected_release.download_urls[0] if selected_release is not None else None
@@ -1889,6 +1904,13 @@ class ProvisionMainWindow(QMainWindow):
         self,
         active: version_manager.ActivationState,
     ) -> None:
+        if self._pm_externally_managed:
+            self._pm_path_status.setText(
+                "Version management issue: this system's ruyi package manager is "
+                "configured to have its version managed by the system package manager."
+            )
+            self._set_status_kind(self._pm_path_status, "error")
+            return
         path_state = version_manager.read_path_state(
             self._pm_versions_directory,
             link=self._pm_activation_link,
@@ -1920,6 +1942,7 @@ class ProvisionMainWindow(QMainWindow):
 
     def _refresh_pm_buttons(self) -> None:
         busy = self._pm_thread is not None
+        controls_enabled = not busy and not self._pm_externally_managed
         release = self._selected_pm_release()
         installed = self._selected_pm_installed_version()
         try:
@@ -1949,22 +1972,22 @@ class ProvisionMainWindow(QMainWindow):
             and active.managed
             and active.target == installed.path.resolve(strict=False)
         )
-        self._pm_available_table.setEnabled(not busy)
-        self._pm_installed_table.setEnabled(not busy)
-        self._pm_refresh_btn.setEnabled(not busy)
-        self._pm_local_refresh_btn.setEnabled(not busy)
-        self._pm_add_url_btn.setEnabled(not busy)
+        self._pm_available_table.setEnabled(controls_enabled)
+        self._pm_installed_table.setEnabled(controls_enabled)
+        self._pm_refresh_btn.setEnabled(controls_enabled)
+        self._pm_local_refresh_btn.setEnabled(controls_enabled)
+        self._pm_add_url_btn.setEnabled(controls_enabled)
         self._pm_download_btn.setEnabled(
-            not busy and release is not None and not release_is_installed
+            controls_enabled and release is not None and not release_is_installed
         )
         self._pm_activate_btn.setEnabled(
-            not busy and installed is not None and not selected_is_active
+            controls_enabled and installed is not None and not selected_is_active
         )
         self._pm_delete_btn.setEnabled(
-            not busy and installed is not None and not selected_is_active
+            controls_enabled and installed is not None and not selected_is_active
         )
-        self._pm_deactivate_btn.setEnabled(not busy and selected_is_active)
-        self._pm_browse_btn.setEnabled(not busy and installed is not None)
+        self._pm_deactivate_btn.setEnabled(controls_enabled and selected_is_active)
+        self._pm_browse_btn.setEnabled(controls_enabled and installed is not None)
 
     def _set_step(self, step: int) -> None:
         if self._current_step == self.STEP_REVIEW and step != self.STEP_REVIEW:

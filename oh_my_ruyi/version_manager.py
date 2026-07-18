@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import tomllib
 import urllib.request
 import uuid
 from urllib.parse import unquote, urlsplit
@@ -26,6 +27,7 @@ FALLBACK_RELEASES_URL = (
     "https://ruyisdk.org/data/api/api_ruyisdk_cn/releases_latest_pm.json"
 )
 DEFAULT_ACTIVATION_LINK = Path("/usr/local/bin/ruyi")
+DEFAULT_SYSTEM_CONFIG = Path("/usr/share/ruyi/config.toml")
 _VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 _CUSTOM_BINARY_RE = re.compile(
     r"^ruyi-(?P<version>"
@@ -163,6 +165,22 @@ def versions_dir(home: Path | None = None) -> Path:
 def telemetry_installation_path(home: Path | None = None) -> Path:
     home = Path.home() if home is None else Path(home)
     return home / ".local" / "state" / "ruyi" / "telemetry" / "installation.json"
+
+
+def is_ruyi_externally_managed(
+    config_path: Path = DEFAULT_SYSTEM_CONFIG,
+) -> bool:
+    """Return whether ruyi delegates version control to a system package manager."""
+    try:
+        with Path(config_path).open("rb") as config_file:
+            config = tomllib.load(config_file)
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    installation = config.get("installation")
+    return (
+        isinstance(installation, dict)
+        and installation.get("externally_managed") is True
+    )
 
 
 def host_platform_key(

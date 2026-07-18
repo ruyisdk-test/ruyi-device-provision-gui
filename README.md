@@ -131,6 +131,11 @@ The local panel also reports whether the first `ruyi` found through the GUI
 process's `PATH` resolves through the managed activation link or is
 missing/shadowed by another installation.
 
+If `/usr/share/ruyi/config.toml` contains
+`installation.externally_managed = true`, the version tables remain visible but
+all version-management controls are disabled. In that configuration, ruyi
+version changes are delegated to the system package manager.
+
 When `~/.local/state/ruyi/telemetry/installation.json` is absent after
 activation, the GUI presents ruyi's first-install telemetry choices. It then
 runs the activated binary's `ruyi telemetry status` command in a pseudo-terminal

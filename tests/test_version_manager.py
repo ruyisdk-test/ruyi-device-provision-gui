@@ -64,6 +64,33 @@ def test_fetch_release_catalog_falls_back_to_static_mirror() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("contents", "expected"),
+    [
+        ("[installation]\nexternally_managed = true\n", True),
+        ("[installation]\nexternally_managed = false\n", False),
+        ("[other]\nexternally_managed = true\n", False),
+        ('[installation]\nexternally_managed = "true"\n', False),
+        ("not valid = [toml\n", False),
+    ],
+)
+def test_external_management_flag_is_read_from_system_config(
+    tmp_path: Path,
+    contents: str,
+    expected: bool,
+) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text(contents)
+
+    assert version_manager.is_ruyi_externally_managed(config) is expected
+
+
+def test_external_management_flag_is_false_when_config_is_missing(
+    tmp_path: Path,
+) -> None:
+    assert not version_manager.is_ruyi_externally_managed(tmp_path / "missing.toml")
+
+
 def test_custom_release_url_requires_semver_and_arch_suffix() -> None:
     release = version_manager.release_from_url(
         "https://downloads.example/ruyi-0.53.0-beta.1-amd64"
