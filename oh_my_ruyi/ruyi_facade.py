@@ -2,7 +2,7 @@
 
 This module is intentionally free of any Qt imports so that it can be unit
 tested in isolation and called from any thread. The wizard pages and the
-:class:`~ruyi_device_provision_gui.workers.Worker` QObjects are its only
+:class:`~oh_my_ruyi.workers.Worker` QObjects are its only
 clients.
 
 The flow mirrors :func:`ruyi.device.provision.do_provision_interactive` but

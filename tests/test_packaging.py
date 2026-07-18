@@ -18,6 +18,15 @@ def test_ruyi_dependency_uses_registry_source() -> None:
     assert ruyi["source"] == {"registry": "https://pypi.org/simple"}
 
 
+def test_project_identity_uses_oh_my_ruyi() -> None:
+    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    assert pyproject["project"]["name"] == "oh-my-ruyi"
+    assert pyproject["project"]["scripts"] == {"oh-my-ruyi": "oh_my_ruyi.__main__:main"}
+    assert pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [
+        "oh_my_ruyi"
+    ]
+
+
 def test_lock_file_has_no_machine_local_ruyi_path() -> None:
     lock_text = (PROJECT_ROOT / "uv.lock").read_text()
     assert "../ruyi" not in lock_text

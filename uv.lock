@@ -414,6 +414,35 @@ wheels = [
 ]
 
 [[package]]
+name = "oh-my-ruyi"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pyside6" },
+    { name = "ruyi" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-qt" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pyside6", specifier = ">=6.6" },
+    { name = "ruyi", specifier = ">=0.51.0a20260616,<0.53" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-qt", specifier = ">=4.4" },
+    { name = "ruff", specifier = ">=0.12" },
+]
+
+[[package]]
 name = "packaging"
 version = "26.2"
 source = { registry = "https://pypi.org/simple" }
@@ -724,35 +753,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/2d/7e/117790e8e2cc964a711e0519a2ffe5af156d45b494f56b0dd4be1f56e89a/ruyi-0.51.0a20260616.tar.gz", hash = "sha256:a8ad86cf04bd895a4383430176f117b0558ce47055396cc6e6ba9070314ca138", size = 192960, upload-time = "2026-06-16T13:23:25.885Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/51/99/e116a4cdf181acb31721aaf7ffac662ac12541b0e328194383983f94cc2b/ruyi-0.51.0a20260616-py3-none-any.whl", hash = "sha256:b6dbfcd3c59c2299b25965c15514334088ad0a32ea8afe3b74f2859180a7e195", size = 233776, upload-time = "2026-06-16T13:23:24.45Z" },
-]
-
-[[package]]
-name = "ruyi-device-provision-gui"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "pyside6" },
-    { name = "ruyi" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-qt" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pyside6", specifier = ">=6.6" },
-    { name = "ruyi", specifier = ">=0.51.0a20260616,<0.53" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8" },
-    { name = "pytest-qt", specifier = ">=4.4" },
-    { name = "ruff", specifier = ">=0.12" },
 ]
 
 [[package]]

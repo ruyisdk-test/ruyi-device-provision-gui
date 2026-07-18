@@ -8,7 +8,7 @@ Three operations must not block the UI thread:
 
 Each operation is wrapped in a :class:`QObject` worker that is moved to a
 :class:`QThread`. Results are reported via Qt signals. All workers log into
-the same :class:`~ruyi_device_provision_gui.qt_logger.QtRuyiLogger` that
+the same :class:`~oh_my_ruyi.qt_logger.QtRuyiLogger` that
 ``GlobalConfig`` was constructed with, so the main window's log view sees
 every line in real time.
 """

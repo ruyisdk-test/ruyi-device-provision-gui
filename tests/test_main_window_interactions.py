@@ -13,14 +13,14 @@ from PySide6.QtWidgets import QApplication
 from ruyi.config import GlobalConfig
 from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-from ruyi_device_provision_gui import host_storage, ruyi_facade, workers
-from ruyi_device_provision_gui import main_window
-from ruyi_device_provision_gui.main_window import (
+from oh_my_ruyi import host_storage, ruyi_facade, workers
+from oh_my_ruyi import main_window
+from oh_my_ruyi.main_window import (
     ProvisionMainWindow,
     _StreamingProcessOutput,
 )
-from ruyi_device_provision_gui.qt_logger import LogEmitter, QtRuyiLogger
-from ruyi_device_provision_gui.workers import FlashWorker
+from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
+from oh_my_ruyi.workers import FlashWorker
 
 
 @pytest.fixture

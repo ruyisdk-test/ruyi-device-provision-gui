@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ruyi-device-provision-gui"
+name = "oh-my-ruyi"
 version = "0.1.0"
 description = "PySide6 GUI frontend for `ruyi device provision`"
 readme = "README.md"
@@ -38,10 +38,10 @@ dev = [
 ]
 
 [project.scripts]
-ruyi-device-provision-gui = "ruyi_device_provision_gui.__main__:main"
+oh-my-ruyi = "oh_my_ruyi.__main__:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["ruyi_device_provision_gui"]
+packages = ["oh_my_ruyi"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

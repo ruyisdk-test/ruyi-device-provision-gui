@@ -1,4 +1,4 @@
-"""``python -m ruyi_device_provision_gui`` entry point."""
+"""``python -m oh_my_ruyi`` entry point."""
 
 from __future__ import annotations
 

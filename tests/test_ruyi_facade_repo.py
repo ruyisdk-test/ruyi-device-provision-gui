@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ruyi_device_provision_gui import ruyi_facade
+from oh_my_ruyi import ruyi_facade
 
 
 class FakeCompositeRepo:

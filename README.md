@@ -1,6 +1,7 @@
-# ruyi-device-provision-gui
+# oh-my-ruyi
 
-A PySide6 single-window frontend for `ruyi device provision`.
+A PySide6 single-window frontend for `ruyi`, currently focused on device
+provisioning and intended to grow into the broader Oh My Ruyi management UI.
 
 The GUI imports `ruyi` as a Python library and drives the same provisioning
 flow used by the interactive CLI. It does not reimplement board/image/package
@@ -41,7 +42,7 @@ to run against a local ruyi checkout can opt in for that command without
 changing the project configuration or lock file:
 
 ```bash
-uv run --with-editable /path/to/ruyi ruyi-device-provision-gui
+uv run --with-editable /path/to/ruyi oh-my-ruyi
 ```
 
 The GUI itself does not depend on `lsblk` or the external `git` command.
@@ -61,13 +62,13 @@ Flash strategies may require commands depending on the selected device image:
 ## Run
 
 ```bash
-uv run ruyi-device-provision-gui
+uv run oh-my-ruyi
 ```
 
 Equivalent module entry point:
 
 ```bash
-uv run python -m ruyi_device_provision_gui
+uv run python -m oh_my_ruyi
 ```
 
 The GUI must be started from a graphical session. Running from a plain TTY or
@@ -173,13 +174,13 @@ QT_QPA_PLATFORM=offscreen uv run pytest tests/test_smoke.py -v
 Compile-check the package:
 
 ```bash
-uv run python -m compileall -q ruyi_device_provision_gui tests
+uv run python -m compileall -q oh_my_ruyi tests
 ```
 
 ## Project Layout
 
 ```text
-ruyi_device_provision_gui/
+oh_my_ruyi/
   __main__.py        # module entry point
   app.py             # QApplication bootstrap
   download_child.py  # subprocess entry point for download/install

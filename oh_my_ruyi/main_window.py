@@ -157,7 +157,7 @@ class ProvisionMainWindow(QMainWindow):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("RuyiSDK Device Provisioning")
+        self.setWindowTitle("Ohh My Ruyi")
         self.resize(1060, 720)
 
         self.state = WizardState(config=config, emitter=emitter)
@@ -301,7 +301,7 @@ class ProvisionMainWindow(QMainWindow):
         self._welcome_status = QLabel("Preparing the RuyiSDK metadata repository...")
         self._welcome_status.setWordWrap(True)
         self._add_page(
-            "RuyiSDK Device Provisioning",
+            "Oh My Ruyi",
             [
                 QLabel(
                     "This screen walks through the same flow as `ruyi device provision`. "
@@ -670,7 +670,7 @@ class ProvisionMainWindow(QMainWindow):
         self._download_process = QProcess(self)
         self._download_process.setProgram(sys.executable)
         self._download_process.setArguments(
-            ["-m", "ruyi_device_provision_gui.download_child", *self.state.pkg_atoms]
+            ["-m", "oh_my_ruyi.download_child", *self.state.pkg_atoms]
         )
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")

@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import os
 
-from ruyi_device_provision_gui import host_storage
+from oh_my_ruyi import host_storage
 
 
 def test_disk_mount_detection_checks_children(monkeypatch) -> None:

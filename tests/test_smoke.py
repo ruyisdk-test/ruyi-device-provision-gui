@@ -16,8 +16,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def test_package_imports_cleanly() -> None:
-    import ruyi_device_provision_gui  # noqa: F401
-    from ruyi_device_provision_gui import (  # noqa: F401
+    import oh_my_ruyi  # noqa: F401
+    from oh_my_ruyi import (  # noqa: F401
         app,
         host_storage,
         main_window,
@@ -31,7 +31,7 @@ def test_package_imports_cleanly() -> None:
 
 def test_qt_logger_emits_signal(qtbot) -> None:
     """A QtRuyiLogger should re-emit every log call via the LogEmitter."""
-    from ruyi_device_provision_gui.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
     gm = EnvGlobalModeProvider({}, [])
@@ -51,7 +51,7 @@ def test_qt_logger_emits_signal(qtbot) -> None:
 
 
 def test_facade_exposes_expected_symbols() -> None:
-    from ruyi_device_provision_gui import ruyi_facade
+    from oh_my_ruyi import ruyi_facade
 
     for name in [
         "list_devices",
@@ -84,8 +84,8 @@ def test_main_window_constructs(qtbot) -> None:
     from ruyi.config import GlobalConfig
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-    from ruyi_device_provision_gui.qt_logger import LogEmitter, QtRuyiLogger
-    from ruyi_device_provision_gui.main_window import ProvisionMainWindow
+    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.main_window import ProvisionMainWindow
 
     _app = QApplication.instance() or QApplication([])
     gm = EnvGlobalModeProvider({}, [])
@@ -94,14 +94,14 @@ def test_main_window_constructs(qtbot) -> None:
     config = GlobalConfig(gm, logger)
 
     window = ProvisionMainWindow(config, logger, emitter, auto_start=False)
-    assert window.windowTitle() == "RuyiSDK Device Provisioning"
+    assert window.windowTitle() == "Ohh My Ruyi"
     assert window._steps.count() == len(window.STEP_TITLES)
     assert window._stack.count() == len(window.STEP_TITLES)
 
 
 def test_flash_worker_adds_dd_progress_on_linux(monkeypatch) -> None:
-    from ruyi_device_provision_gui import workers
-    from ruyi_device_provision_gui.workers import FlashWorker
+    from oh_my_ruyi import workers
+    from oh_my_ruyi.workers import FlashWorker
 
     monkeypatch.setattr(workers.platform, "system", lambda: "Linux")
 
@@ -134,8 +134,8 @@ def test_flash_worker_adds_dd_progress_on_linux(monkeypatch) -> None:
 
 
 def test_flash_worker_does_not_add_dd_progress_on_macos(monkeypatch) -> None:
-    from ruyi_device_provision_gui import workers
-    from ruyi_device_provision_gui.workers import FlashWorker
+    from oh_my_ruyi import workers
+    from oh_my_ruyi.workers import FlashWorker
 
     monkeypatch.setattr(workers.platform, "system", lambda: "Darwin")
 
@@ -147,7 +147,7 @@ def test_flash_worker_does_not_add_dd_progress_on_macos(monkeypatch) -> None:
 
 
 def test_flash_worker_emits_carriage_return_output() -> None:
-    from ruyi_device_provision_gui.workers import FlashWorker
+    from oh_my_ruyi.workers import FlashWorker
 
     worker = FlashWorker(None, None, {}, {}, set())  # type: ignore[arg-type]
     captured: list[str] = []
@@ -170,7 +170,7 @@ def test_flash_worker_emits_carriage_return_output() -> None:
 def test_worker_run_executes_in_worker_thread(qtbot) -> None:
     from PySide6.QtCore import QThread, Signal
 
-    from ruyi_device_provision_gui.workers import _BaseWorker, run_worker_in_thread
+    from oh_my_ruyi.workers import _BaseWorker, run_worker_in_thread
 
     class ProbeWorker(_BaseWorker):
         finished = Signal(object)  # type: ignore[assignment]

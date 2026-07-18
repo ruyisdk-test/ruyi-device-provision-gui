@@ -39,7 +39,7 @@ def run(argv: Optional[list[str]] = None) -> int:
     if argv is None:
         argv = sys.argv
     app = QApplication(argv)
-    app.setApplicationName("ruyi-device-provision-gui")
+    app.setApplicationName("oh-my-ruyi")
 
     config, _logger, emitter = build_config()
     window = ProvisionMainWindow(config, _logger, emitter)
