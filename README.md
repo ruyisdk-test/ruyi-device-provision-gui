@@ -10,8 +10,8 @@ provision strategy plugins.
 
 ## Features
 
-- Four top-level tabs for version, repository, device provisioning, and config
-  management. Repository and config management are reserved for future work.
+- Three top-level tabs for version management, repository management, and device
+  provisioning. Repository management is reserved for future work.
 - Stable and testing package manager release discovery with API fallback.
 - Per-user standalone ruyi downloads and `/usr/local/bin/ruyi` activation.
 - Graphical first-install telemetry choices using ruyi's native OOBE flow.
@@ -262,5 +262,5 @@ tests/
 
 ## Status
 
-Alpha. Version management and device provisioning are implemented. Repository
-and config management tabs are currently empty.
+Alpha. Version management and device provisioning are implemented. The
+repository management tab is currently empty.

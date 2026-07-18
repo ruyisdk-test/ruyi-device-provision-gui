@@ -525,11 +525,9 @@ class ProvisionMainWindow(QMainWindow):
         self._version_manager_tab = self._build_version_manager_tab()
         self._repo_manager_tab = QWidget()
         self._provision_tab = provision_tab
-        self._config_manager_tab = QWidget()
         self._tabs.addTab(self._version_manager_tab, "Version Management")
         self._tabs.addTab(self._repo_manager_tab, "Repo Management")
         self._tabs.addTab(self._provision_tab, "Device Provision")
-        self._tabs.addTab(self._config_manager_tab, "Config Management")
         self.setCentralWidget(self._tabs)
         self._apply_styles()
 
