@@ -437,14 +437,17 @@ class ProvisionMainWindow(QMainWindow):
         buttons.addStretch()
         self._pm_refresh_btn = QPushButton("Refresh")
         self._pm_download_btn = QPushButton("Download")
+        self._pm_remove_url_btn = QPushButton("Remove")
         self._pm_add_url_btn = QPushButton("Add URL")
         self._pm_refresh_btn.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
         )
         self._pm_refresh_btn.clicked.connect(self._refresh_pm_catalog)
         self._pm_download_btn.clicked.connect(self._download_selected_pm_version)
+        self._pm_remove_url_btn.clicked.connect(self._remove_selected_pm_download_url)
         buttons.addWidget(self._pm_refresh_btn)
         buttons.addWidget(self._pm_download_btn)
+        buttons.addWidget(self._pm_remove_url_btn)
         buttons.addWidget(self._pm_add_url_btn)
         buttons.addStretch()
         self._pm_add_url_btn.clicked.connect(self._add_pm_download_url)
@@ -942,13 +945,30 @@ class ProvisionMainWindow(QMainWindow):
             return
         self._refresh_pm_versions()
 
+    def _remove_selected_pm_download_url(self) -> None:
+        if self._pm_thread is not None or self._pm_externally_managed:
+            return
+        release = self._selected_pm_release()
+        custom_release = next(
+            (item for item in self._pm_custom_releases if item is release),
+            None,
+        )
+        if custom_release is None:
+            return
+        self._pm_custom_releases.remove(custom_release)
+        self._pm_status.setText(
+            f"Removed transient download URL for ruyi {custom_release.version}."
+        )
+        self._set_status_kind(self._pm_status, "success")
+        self._refresh_pm_versions()
+
     def _add_pm_download_url(self) -> None:
         if self._pm_thread is not None:
             return
         url, ok = QInputDialog.getText(
             self,
             "Add ruyi download URL",
-            "URL ending in ruyi-<semver version>-<arch>:",
+            "URL ending in ruyi-<semver version>.<arch>:",
         )
         if not ok or not url.strip():
             return
@@ -1819,7 +1839,11 @@ class ProvisionMainWindow(QMainWindow):
             version_item.setData(Qt.ItemDataRole.UserRole, release)
             table.setItem(row, 0, version_item)
             table.setItem(row, 1, QTableWidgetItem(release.channel))
-            table.setItem(row, 2, QTableWidgetItem(release.architecture))
+            architecture = (
+                version_manager.normalize_architecture(release.architecture)
+                or release.architecture
+            )
+            table.setItem(row, 2, QTableWidgetItem(architecture))
             table.setItem(row, 3, QTableWidgetItem(release.release_date[:10]))
         table.setSortingEnabled(True)
         table.sortItems(0, Qt.SortOrder.DescendingOrder)
@@ -1977,6 +2001,11 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_refresh_btn.setEnabled(controls_enabled)
         self._pm_local_refresh_btn.setEnabled(controls_enabled)
         self._pm_add_url_btn.setEnabled(controls_enabled)
+        self._pm_remove_url_btn.setEnabled(
+            controls_enabled
+            and release is not None
+            and any(item is release for item in self._pm_custom_releases)
+        )
         self._pm_download_btn.setEnabled(
             controls_enabled and release is not None and not release_is_installed
         )

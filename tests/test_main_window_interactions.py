@@ -163,6 +163,7 @@ def test_external_system_management_keeps_tables_visible_but_disables_controls(
     assert not window._pm_installed_table.isEnabled()
     assert not window._pm_refresh_btn.isEnabled()
     assert not window._pm_download_btn.isEnabled()
+    assert not window._pm_remove_url_btn.isEnabled()
     assert not window._pm_add_url_btn.isEnabled()
     assert not window._pm_local_refresh_btn.isEnabled()
     assert not window._pm_activate_btn.isEnabled()
@@ -334,7 +335,7 @@ def test_add_url_is_transient_and_survives_refresh(
     window: ProvisionMainWindow,
     monkeypatch,
 ) -> None:
-    custom_url = "https://downloads.example/ruyi-0.53.0-beta.1-amd64"
+    custom_url = "https://downloads.example/ruyi-0.53.0-beta.1.amd64"
     monkeypatch.setattr(
         main_window.QInputDialog,
         "getText",
@@ -346,8 +347,9 @@ def test_add_url_is_transient_and_survives_refresh(
     assert window._pm_available_table.rowCount() == 1
     assert window._pm_available_table.item(0, 0).text() == "0.53.0-beta.1"
     assert window._pm_available_table.item(0, 1).text() == "custom"
-    assert window._pm_available_table.item(0, 2).text() == "amd64"
+    assert window._pm_available_table.item(0, 2).text() == "x86_64"
     assert window._pm_download_btn.isEnabled()
+    assert window._pm_remove_url_btn.isEnabled()
 
     window._on_pm_catalog_ready(
         version_manager.ReleaseCatalog(
@@ -371,6 +373,54 @@ def test_add_url_is_transient_and_survives_refresh(
     }
 
 
+def test_remove_does_not_remove_api_release_with_same_version(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    custom_url = "https://downloads.example/ruyi-0.53.0-beta.1.amd64"
+    monkeypatch.setattr(
+        main_window.QInputDialog,
+        "getText",
+        lambda *_args, **_kwargs: (custom_url, True),
+    )
+    window._add_pm_download_url()
+    window._pm_catalog_releases = [
+        version_manager.RuyiRelease(
+            "0.53.0-beta.1",
+            "testing",
+            "2026-07-14T10:54:29Z",
+            ("https://api.example/ruyi-0.53.0-beta.1.amd64",),
+            "x86_64",
+        )
+    ]
+    window._refresh_pm_versions(select_available_url=custom_url)
+
+    assert window._pm_available_table.rowCount() == 2
+    assert window._pm_remove_url_btn.isEnabled()
+
+    for row in range(window._pm_available_table.rowCount()):
+        if window._pm_available_table.item(row, 1).text() == "testing":
+            window._pm_available_table.selectRow(row)
+            break
+    assert not window._pm_remove_url_btn.isEnabled()
+    window._remove_selected_pm_download_url()
+    assert len(window._pm_custom_releases) == 1
+    assert window._pm_available_table.rowCount() == 2
+
+    for row in range(window._pm_available_table.rowCount()):
+        release = window._pm_available_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        if release is window._pm_custom_releases[0]:
+            window._pm_available_table.selectRow(row)
+            break
+    assert window._pm_remove_url_btn.isEnabled()
+    window._pm_remove_url_btn.click()
+
+    assert window._pm_custom_releases == []
+    assert window._pm_available_table.rowCount() == 1
+    assert window._pm_available_table.item(0, 1).text() == "testing"
+    assert not window._pm_remove_url_btn.isEnabled()
+
+
 def test_add_url_rejects_incompatible_architecture(
     window: ProvisionMainWindow,
     monkeypatch,
@@ -380,7 +430,7 @@ def test_add_url_rejects_incompatible_architecture(
         main_window.QInputDialog,
         "getText",
         lambda *_args, **_kwargs: (
-            "https://downloads.example/ruyi-0.53.0-beta.1-riscv64",
+            "https://downloads.example/ruyi-0.53.0-beta.1.riscv64",
             True,
         ),
     )

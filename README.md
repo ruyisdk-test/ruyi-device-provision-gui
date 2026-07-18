@@ -108,9 +108,10 @@ it is derived directly from the target of `/usr/local/bin/ruyi`.
 
 The version page separates available downloads from locally downloaded
 versions. A custom URL can be added for the current application session when
-its filename matches `ruyi-<semver version>-<arch>`; refreshing the API catalog
+its filename matches `ruyi-<semver version>.<arch>`; refreshing the API catalog
 does not remove these transient entries. Custom URLs are not persisted and are
-downloaded only after selecting the row and pressing `Download`.
+downloaded only after selecting the row and pressing `Download`. Select a
+transient entry and press `Remove` to remove it from the current session.
 
 Activation may require a sudo password. If `/usr/local/bin/ruyi` already exists
 and is not a symlink managed by Oh My Ruyi, the GUI asks before replacing it.

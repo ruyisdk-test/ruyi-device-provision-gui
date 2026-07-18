@@ -34,7 +34,7 @@ _CUSTOM_BINARY_RE = re.compile(
     r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
-    r")-(?P<arch>[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)$"
+    r")\.(?P<arch>[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)$"
 )
 _ARCH_PLATFORM_KEYS = {
     ("linux", "amd64"): "linux/x86_64",
@@ -310,7 +310,7 @@ def release_from_url(url: str) -> RuyiRelease:
     match = _CUSTOM_BINARY_RE.fullmatch(filename)
     if match is None:
         raise VersionManagerError(
-            "URL filename must match ruyi-<semver version>-<arch>"
+            "URL filename must match ruyi-<semver version>.<arch>"
         )
     return RuyiRelease(
         match.group("version"),

@@ -92,18 +92,24 @@ def test_external_management_flag_is_false_when_config_is_missing(
 
 
 def test_custom_release_url_requires_semver_and_arch_suffix() -> None:
-    release = version_manager.release_from_url(
-        "https://downloads.example/ruyi-0.53.0-beta.1-amd64"
+    stable = version_manager.release_from_url(
+        "https://downloads.example/ruyi-0.50.0.amd64"
+    )
+    prerelease = version_manager.release_from_url(
+        "https://downloads.example/ruyi-0.53.0-beta.1.amd64"
     )
 
-    assert release.version == "0.53.0-beta.1"
-    assert release.architecture == "amd64"
-    assert release.channel == "custom"
+    assert stable.version == "0.50.0"
+    assert stable.architecture == "amd64"
+    assert stable.channel == "custom"
+    assert prerelease.version == "0.53.0-beta.1"
+    assert prerelease.architecture == "amd64"
+    assert prerelease.channel == "custom"
 
     for invalid in [
         "https://downloads.example/ruyi-0.53-amd64",
-        "https://downloads.example/ruyi-0.53.0.amd64",
-        "file:///tmp/ruyi-0.53.0-amd64",
+        "https://downloads.example/ruyi-0.53.0-amd64",
+        "file:///tmp/ruyi-0.53.0.amd64",
     ]:
         with pytest.raises(version_manager.VersionManagerError):
             version_manager.release_from_url(invalid)
