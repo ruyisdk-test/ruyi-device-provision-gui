@@ -15,7 +15,10 @@ from ruyi.utils.global_mode import EnvGlobalModeProvider
 
 from ruyi_device_provision_gui import host_storage, ruyi_facade, workers
 from ruyi_device_provision_gui import main_window
-from ruyi_device_provision_gui.main_window import ProvisionMainWindow
+from ruyi_device_provision_gui.main_window import (
+    ProvisionMainWindow,
+    _StreamingProcessOutput,
+)
 from ruyi_device_provision_gui.qt_logger import LogEmitter, QtRuyiLogger
 from ruyi_device_provision_gui.workers import FlashWorker
 
@@ -230,6 +233,47 @@ def test_failed_download_start_releases_busy_state(window: ProvisionMainWindow) 
     assert not window._is_busy()
     assert window._download_recoverable
     assert window._download_recovery_row.isVisibleTo(window)
+
+
+def test_curl_progress_handles_carriage_returns_across_chunks() -> None:
+    output = _StreamingProcessOutput()
+
+    first = output.feed(b"  % Total    % Received\n  0     0\r")
+    second = output.feed(b"100  4096  100  4096\n")
+
+    assert first == [
+        ("line", "  % Total    % Received"),
+        ("progress", "  0     0"),
+    ]
+    assert second == [("line", "100  4096  100  4096")]
+
+
+def test_wget_progress_handles_split_utf8_and_final_line() -> None:
+    output = _StreamingProcessOutput()
+    encoded = "image.iso  25% [=>] 下载中".encode()
+
+    first = output.feed(encoded[:-1])
+    second = output.feed(encoded[-1:] + b"\rimage.iso 100% [==>] saved")
+    final = output.feed(b"", final=True)
+
+    assert first == [("progress", "image.iso  25% [=>] 下载")]
+    assert second == [("progress", "image.iso 100% [==>] saved")]
+    assert final == [("line", "image.iso 100% [==>] saved")]
+
+
+def test_download_log_replaces_progress_line(window: ProvisionMainWindow) -> None:
+    window._download_output = _StreamingProcessOutput()
+    window._download_progress_line_active = False
+    window._download_log.clear()
+
+    window._consume_download_output(b"Connecting...\nfile 10%\r")
+    window._consume_download_output(b"file 100%\nSaved\n", final=True)
+
+    assert window._download_log.toPlainText().splitlines() == [
+        "Connecting...",
+        "file 100%",
+        "Saved",
+    ]
 
 
 def test_fastboot_check_runs_without_blocking_ui(

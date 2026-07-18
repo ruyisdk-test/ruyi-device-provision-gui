@@ -8,14 +8,16 @@ controls for the current step.
 
 from __future__ import annotations
 
+import codecs
 import os
 import platform
 import signal
 import sys
 from pathlib import Path
+from typing import Literal
 
 from PySide6.QtCore import QDir, QEvent, QProcess, QProcessEnvironment, QTimer, Qt
-from PySide6.QtGui import QPalette
+from PySide6.QtGui import QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -54,6 +56,66 @@ from .workers import (
 FASTBOOT_PROGRAM = "fastboot"
 STORAGE_MOUNTED_ROLE = Qt.ItemDataRole.UserRole.value + 1
 STORAGE_FINGERPRINT_ROLE = Qt.ItemDataRole.UserRole.value + 2
+
+
+class _StreamingProcessOutput:
+    """Turn chunked process bytes into terminal-style line updates."""
+
+    def __init__(self) -> None:
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._current = ""
+        self._has_current = False
+        self._pending_carriage_return = False
+
+    def feed(
+        self,
+        data: bytes,
+        *,
+        final: bool = False,
+    ) -> list[tuple[Literal["line", "progress"], str]]:
+        text = self._decoder.decode(data, final=final)
+        events: list[tuple[Literal["line", "progress"], str]] = []
+        current_changed = False
+
+        for char in text:
+            if self._pending_carriage_return:
+                self._pending_carriage_return = False
+                if char == "\n":
+                    events.append(("line", self._current))
+                    self._current = ""
+                    self._has_current = False
+                    current_changed = False
+                    continue
+                self._current = ""
+                self._has_current = False
+                current_changed = True
+
+            if char == "\r":
+                self._pending_carriage_return = True
+            elif char == "\n":
+                events.append(("line", self._current))
+                self._current = ""
+                self._has_current = False
+                current_changed = False
+            elif char == "\b":
+                self._current = self._current[:-1]
+                self._has_current = bool(self._current)
+                current_changed = True
+            else:
+                self._current += char
+                self._has_current = True
+                current_changed = True
+
+        if final:
+            self._pending_carriage_return = False
+            if self._has_current:
+                events.append(("line", self._current))
+                self._current = ""
+                self._has_current = False
+        elif current_changed and self._has_current:
+            events.append(("progress", self._current))
+
+        return events
 
 
 class ProvisionMainWindow(QMainWindow):
@@ -103,6 +165,8 @@ class ProvisionMainWindow(QMainWindow):
         self._worker = None
         self._thread = None
         self._download_process: QProcess | None = None
+        self._download_output = _StreamingProcessOutput()
+        self._download_progress_line_active = False
         self._fastboot_process: QProcess | None = None
         self._fastboot_output = ""
         self._fastboot_error_output = ""
@@ -598,6 +662,8 @@ class ProvisionMainWindow(QMainWindow):
         self._download_ok = False
         self._download_cancelled = False
         self._download_recoverable = False
+        self._download_output = _StreamingProcessOutput()
+        self._download_progress_line_active = False
         self._download_log.clear()
         self._download_status.setText("Downloading and installing packages...")
         self._set_step(self.STEP_DOWNLOAD)
@@ -870,11 +936,30 @@ class ProvisionMainWindow(QMainWindow):
     def _on_download_output(self) -> None:
         if self._download_process is None:
             return
-        data = bytes(self._download_process.readAllStandardOutput()).decode(
-            errors="replace"
+        self._consume_download_output(
+            bytes(self._download_process.readAllStandardOutput())
         )
-        if data:
-            self._download_log.appendPlainText(data.rstrip("\n"))
+
+    def _consume_download_output(self, data: bytes, *, final: bool = False) -> None:
+        for kind, text in self._download_output.feed(data, final=final):
+            self._render_download_output(text, complete=kind == "line")
+
+    def _render_download_output(self, text: str, *, complete: bool) -> None:
+        cursor = self._download_log.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if self._download_progress_line_active:
+            cursor.movePosition(
+                QTextCursor.MoveOperation.StartOfBlock,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+            cursor.insertText(text)
+        else:
+            self._download_log.appendPlainText(text)
+        self._download_progress_line_active = not complete
+        cursor = self._download_log.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._download_log.setTextCursor(cursor)
+        self._download_log.ensureCursorVisible()
 
     def _on_download_process_error(self, error) -> None:
         self._download_status.setText(f"Download process error: {error.name}.")
@@ -890,11 +975,10 @@ class ProvisionMainWindow(QMainWindow):
 
     def _on_download_process_finished(self, ret: int, _status) -> None:
         if self._download_process is not None:
-            leftover = bytes(self._download_process.readAllStandardOutput()).decode(
-                errors="replace"
+            self._consume_download_output(
+                bytes(self._download_process.readAllStandardOutput())
             )
-            if leftover:
-                self._download_log.appendPlainText(leftover.rstrip("\n"))
+            self._consume_download_output(b"", final=True)
             self._download_process.deleteLater()
             self._download_process = None
         if self._download_cancelled:
