@@ -1,7 +1,7 @@
 # oh-my-ruyi
 
-A PySide6 single-window frontend for `ruyi`, currently focused on device
-provisioning and intended to grow into the broader Oh My Ruyi management UI.
+A PySide6 management frontend for `ruyi`, with package manager version control
+and device provisioning in one tabbed application.
 
 The GUI imports `ruyi` as a Python library and drives the same provisioning
 flow used by the interactive CLI. It does not reimplement board/image/package
@@ -10,6 +10,11 @@ provision strategy plugins.
 
 ## Features
 
+- Four top-level tabs for version, repository, device provisioning, and config
+  management. Repository and config management are reserved for future work.
+- Stable and testing package manager release discovery with API fallback.
+- Per-user standalone ruyi downloads and `/usr/local/bin/ruyi` activation.
+- Graphical first-install telemetry choices using ruyi's native OOBE flow.
 - Single-window provisioning flow with the steps visible on the left.
 - Device, variant, image, package version, package confirmation, download,
   storage selection, review, flash, and done steps.
@@ -88,6 +93,29 @@ If the current metadata repository has no device provisioning data, the Device
 page shows the available entity types and exposes an `Update metadata` button.
 That button runs the repository sync portion of ruyi's update flow through
 ruyi's Python API.
+
+## Package Manager Versions
+
+The Version Management tab reads the latest stable and testing releases from
+`https://api.ruyisdk.cn/releases/latest-pm`. If that endpoint fails or returns
+invalid data, it falls back to
+`https://ruyisdk.org/data/api/api_ruyisdk_cn/releases_latest_pm.json`.
+
+Downloaded binaries are stored as `ruyi-<version>` under
+`~/.local/share/oh-my-ruyi/versions`. Architecture suffixes such as `.amd64`
+are not retained. The active version is not stored in a separate state file;
+it is derived directly from the target of `/usr/local/bin/ruyi`.
+
+Activation may require a sudo password. If `/usr/local/bin/ruyi` already exists
+and is not a symlink managed by Oh My Ruyi, the GUI asks before replacing it.
+After confirmation, the existing path is moved to `ruyi.bak` or the next free
+numbered backup before the managed symlink is installed.
+
+When `~/.local/state/ruyi/telemetry/installation.json` is absent after
+activation, the GUI presents ruyi's first-install telemetry choices. It then
+runs the activated binary's `ruyi telemetry status` command in a pseudo-terminal
+with those answers, allowing ruyi itself to create installation state and apply
+the selected `on`, `local`, or `off` mode.
 
 For local metadata development, point ruyi at a metadata tree that contains
 the device entities. Example:
@@ -192,13 +220,15 @@ oh_my_ruyi/
   qt_logger.py       # RuyiLogger subclass that emits Qt signals
   ruyi_facade.py     # Qt-free facade over ruyi internals
   state.py           # GUI flow state
-  workers.py         # QThread workers for repo sync and flashing
+  version_manager.py # release discovery, downloads, activation, telemetry
+  workers.py         # QThread workers for version, repo, and flash operations
 tests/
   test_host_storage.py # platform storage backend tests
+  test_version_manager.py # package manager version service tests
   test_smoke.py      # import, UI construction, and targeted regression tests
 ```
 
 ## Status
 
-Alpha. The implementation is intended to stay close to ruyi's real
-`device provision` behavior while providing a GUI around the interactive steps.
+Alpha. Version management and device provisioning are implemented. Repository
+and config management tabs are currently empty.
