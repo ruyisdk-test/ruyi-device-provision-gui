@@ -177,6 +177,9 @@ Compile-check the package:
 uv run python -m compileall -q oh_my_ruyi tests
 ```
 
+GitHub Actions runs the lockfile, Ruff, compile, package build, and full
+offscreen test checks for every push and pull request.
+
 ## Project Layout
 
 ```text

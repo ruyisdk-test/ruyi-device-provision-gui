@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Checks / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libdbus-1-3 \
+            libegl1 \
+            libfontconfig1 \
+            libgl1 \
+            libxkbcommon0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Sync locked dependencies
+        run: uv sync --locked --python ${{ matrix.python-version }} --group dev
+
+      - name: Check lockfile
+        run: uv lock --check
+
+      - name: Run Ruff lint
+        run: uv run --locked ruff check oh_my_ruyi tests
+
+      - name: Check Ruff formatting
+        run: uv run --locked ruff format --check oh_my_ruyi tests
+
+      - name: Compile Python sources
+        run: uv run --locked python -m compileall -q oh_my_ruyi tests
+
+      - name: Build package
+        run: uv build
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run --locked python -m pytest -q
