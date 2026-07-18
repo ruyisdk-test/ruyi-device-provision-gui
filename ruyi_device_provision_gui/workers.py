@@ -139,7 +139,9 @@ class FlashWorker(_BaseWorker):
 
     def _run_with_gui_prompts(self) -> int:
         if platform.system() == "Windows":
-            raise RuntimeError("Native Windows flashing is not supported. Run this GUI inside WSL2 with usbipd-attached USB devices.")
+            raise RuntimeError(
+                "Native Windows flashing is not supported. Run this GUI inside WSL2 with usbipd-attached USB devices."
+            )
         from ruyi.pluginhost import api as plugin_api
 
         original_ask = plugin_api.RuyiHostAPI.cli_ask_for_yesno_confirmation
@@ -172,7 +174,9 @@ class FlashWorker(_BaseWorker):
         argv = self._argv_with_gui_progress(argv)
         if argv and argv[0] == "sudo":
             response: dict[str, str | None] = {"password": None}
-            self.password_requested.emit("sudo password is required for flashing.", response)
+            self.password_requested.emit(
+                "sudo password is required for flashing.", response
+            )
             password = response["password"]
             if password is None:
                 self.process_output.emit("sudo password prompt was cancelled.")
@@ -247,9 +251,7 @@ class FlashWorker(_BaseWorker):
         if not command or command[0] != "dd":
             return
         output_paths = [
-            arg.removeprefix("of=")
-            for arg in command[1:]
-            if arg.startswith("of=")
+            arg.removeprefix("of=") for arg in command[1:] if arg.startswith("of=")
         ]
         if len(output_paths) != 1 or not output_paths[0]:
             raise RuntimeError(

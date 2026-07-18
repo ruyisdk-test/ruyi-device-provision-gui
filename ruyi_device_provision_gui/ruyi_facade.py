@@ -37,11 +37,11 @@ from ruyi.device.provision import (
 )
 
 from .host_storage import (
-    BlockDeviceChoice,
-    is_disk_or_child_mounted,
-    is_path_mounted_blkdev,
-    list_disks,
-    storage_platform_hint,
+    BlockDeviceChoice as BlockDeviceChoice,
+    is_disk_or_child_mounted as is_disk_or_child_mounted,
+    is_path_mounted_blkdev as is_path_mounted_blkdev,
+    list_disks as list_disks,
+    storage_platform_hint as storage_platform_hint,
 )
 
 
@@ -217,7 +217,9 @@ def list_package_version_selections(
             )
             continue
 
-        versions = [pm for pm in versions if not pm.is_prerelease or config.include_prereleases]
+        versions = [
+            pm for pm in versions if not pm.is_prerelease or config.include_prereleases
+        ]
         versions.sort(key=lambda pm: pm.semver, reverse=True)
         if not versions:
             selections.append(
@@ -251,7 +253,9 @@ def list_package_version_selections(
                 original_atom=atom_str,
                 package_name=pkg_fullname,
                 options=options,
-                locked_reason=None if len(options) > 1 else "only one version available",
+                locked_reason=None
+                if len(options) > 1
+                else "only one version available",
             )
         )
     return selections
@@ -289,8 +293,7 @@ def list_variants(mr: CompositeRepo, dev: BaseEntity) -> list[VariantChoice]:
         return f"{dev.display_name} ({v.data.get('variant_name', v.id)})"
 
     return [
-        VariantChoice(entity=v, id=v.id, display_name=display_name(v))
-        for v in variants
+        VariantChoice(entity=v, id=v.id, display_name=display_name(v)) for v in variants
     ]
 
 

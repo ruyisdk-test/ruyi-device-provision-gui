@@ -88,9 +88,7 @@ def device_fingerprint(path: str) -> str | None:
             if sysfs_node is None:
                 return None
             identity_node = (
-                sysfs_node.parent
-                if (sysfs_node / "partition").exists()
-                else sysfs_node
+                sysfs_node.parent if (sysfs_node / "partition").exists() else sysfs_node
             )
             parts.extend(
                 [
@@ -159,7 +157,11 @@ def storage_platform_hint() -> str:
 
 def _is_wsl2() -> bool:
     try:
-        text = pathlib.Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+        text = (
+            pathlib.Path("/proc/sys/kernel/osrelease")
+            .read_text(encoding="utf-8")
+            .lower()
+        )
     except OSError:
         return False
     return "microsoft" in text or "wsl" in text
@@ -405,9 +407,7 @@ def _linux_related_block_device_ids(path: str) -> set[int] | None:
 
         try:
             pending.extend(
-                child
-                for child in node.iterdir()
-                if (child / "partition").exists()
+                child for child in node.iterdir() if (child / "partition").exists()
             )
         except OSError:
             return None
@@ -429,9 +429,7 @@ def _path_block_device_id(path: str) -> int | None:
 
 
 def _linux_sysfs_node(device_id: int) -> pathlib.Path | None:
-    node = pathlib.Path(
-        f"/sys/dev/block/{os.major(device_id)}:{os.minor(device_id)}"
-    )
+    node = pathlib.Path(f"/sys/dev/block/{os.major(device_id)}:{os.minor(device_id)}")
     try:
         return node.resolve(strict=True)
     except OSError:

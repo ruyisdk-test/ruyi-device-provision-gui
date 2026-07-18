@@ -140,7 +140,7 @@ class QtRuyiLogger(RuyiLogger):
         self._emit("F", message, *objects, sep=sep, end=end)
         self._emitter.fatal_emitted.emit()
 
-    def I(  # noqa: N802 - mirrors ruyi's API
+    def I(  # noqa: N802, E743 - mirrors ruyi's API
         self,
         message: Any,
         *objects: Any,

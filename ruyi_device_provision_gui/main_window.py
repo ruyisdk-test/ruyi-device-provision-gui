@@ -217,8 +217,12 @@ class ProvisionMainWindow(QMainWindow):
         button_row.addStretch()
         self._back_btn = QPushButton("Back")
         self._next_btn = QPushButton("Next")
-        self._back_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack))
-        self._next_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward))
+        self._back_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack)
+        )
+        self._next_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward)
+        )
         self._next_btn.setObjectName("primaryButton")
         self._back_btn.clicked.connect(self._go_back)
         self._next_btn.clicked.connect(self._go_next)
@@ -451,74 +455,74 @@ class ProvisionMainWindow(QMainWindow):
         try:
             self.setStyleSheet(
                 f"""
-            QMainWindow {{ background: {colors['window']}; color: {colors['window_text']}; }}
-            QWidget {{ color: {colors['window_text']}; }}
+            QMainWindow {{ background: {colors["window"]}; color: {colors["window_text"]}; }}
+            QWidget {{ color: {colors["window_text"]}; }}
             QListWidget#stepList {{
-                background: {colors['base']};
-                color: {colors['text']};
-                border: 1px solid {colors['border']};
+                background: {colors["base"]};
+                color: {colors["text"]};
+                border: 1px solid {colors["border"]};
                 border-radius: 6px;
                 padding: 4px;
             }}
             QListWidget#stepList::item {{ min-height: 34px; padding: 3px 7px; }}
             QListWidget#stepList::item:selected {{
-                background: {colors['highlight']};
-                color: {colors['highlighted_text']};
+                background: {colors["highlight"]};
+                color: {colors["highlighted_text"]};
             }}
-            QListWidget#stepList::item:disabled {{ color: {colors['disabled_text']}; }}
+            QListWidget#stepList::item:disabled {{ color: {colors["disabled_text"]}; }}
             QGroupBox {{
-                background: {colors['base']};
-                color: {colors['text']};
-                border: 1px solid {colors['border']};
+                background: {colors["base"]};
+                color: {colors["text"]};
+                border: 1px solid {colors["border"]};
                 border-radius: 6px;
                 margin-top: 9px;
                 padding: 8px;
             }}
             QGroupBox::title {{ subcontrol-origin: margin; left: 8px; padding: 0 4px; }}
-            QGroupBox QLabel {{ color: {colors['text']}; }}
-            QLabel#pageTitle {{ font-size: 17px; color: {colors['window_text']}; }}
+            QGroupBox QLabel {{ color: {colors["text"]}; }}
+            QLabel#pageTitle {{ font-size: 17px; color: {colors["window_text"]}; }}
             QLabel#postInstallMessage {{
                 padding: 8px;
-                background: {colors['base']};
-                color: {colors['text']};
-                border: 1px solid {colors['border']};
+                background: {colors["base"]};
+                color: {colors["text"]};
+                border: 1px solid {colors["border"]};
             }}
-            QLabel[statusKind="success"] {{ color: {colors['success']}; font-weight: 600; }}
-            QLabel[statusKind="warning"] {{ color: {colors['warning']}; font-weight: 600; }}
-            QLabel[statusKind="error"] {{ color: {colors['error']}; font-weight: 600; }}
+            QLabel[statusKind="success"] {{ color: {colors["success"]}; font-weight: 600; }}
+            QLabel[statusKind="warning"] {{ color: {colors["warning"]}; font-weight: 600; }}
+            QLabel[statusKind="error"] {{ color: {colors["error"]}; font-weight: 600; }}
             QPushButton {{
                 min-height: 30px;
                 padding: 2px 10px;
-                background: {colors['button']};
-                color: {colors['button_text']};
-                border: 1px solid {colors['border']};
+                background: {colors["button"]};
+                color: {colors["button_text"]};
+                border: 1px solid {colors["border"]};
                 border-radius: 4px;
             }}
             QPushButton#primaryButton {{
-                background: {colors['highlight']};
-                color: {colors['highlighted_text']};
-                border-color: {colors['highlight']};
+                background: {colors["highlight"]};
+                color: {colors["highlighted_text"]};
+                border-color: {colors["highlight"]};
             }}
             QPushButton:disabled {{
-                background: {colors['disabled_button']};
-                color: {colors['disabled_text']};
+                background: {colors["disabled_button"]};
+                color: {colors["disabled_text"]};
             }}
             QPushButton#primaryButton:disabled {{
-                background: {colors['disabled_button']};
-                color: {colors['disabled_text']};
-                border-color: {colors['border']};
+                background: {colors["disabled_button"]};
+                color: {colors["disabled_text"]};
+                border-color: {colors["border"]};
             }}
             QLineEdit, QComboBox, QListWidget, QPlainTextEdit {{
-                background: {colors['base']};
-                color: {colors['text']};
-                selection-background-color: {colors['highlight']};
-                selection-color: {colors['highlighted_text']};
-                border: 1px solid {colors['border']};
+                background: {colors["base"]};
+                color: {colors["text"]};
+                selection-background-color: {colors["highlight"]};
+                selection-color: {colors["highlighted_text"]};
+                border: 1px solid {colors["border"]};
             }}
             QLineEdit:disabled, QComboBox:disabled, QListWidget:disabled,
             QPlainTextEdit:disabled, QCheckBox:disabled {{
-                background: {colors['disabled_button']};
-                color: {colors['disabled_text']};
+                background: {colors["disabled_button"]};
+                color: {colors["disabled_text"]};
             }}
             """
             )
@@ -605,7 +609,9 @@ class ProvisionMainWindow(QMainWindow):
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
         self._download_process.setProcessEnvironment(env)
-        self._download_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self._download_process.setProcessChannelMode(
+            QProcess.ProcessChannelMode.MergedChannels
+        )
         self._download_process.readyReadStandardOutput.connect(self._on_download_output)
         self._download_process.finished.connect(self._on_download_process_finished)
         self._download_process.errorOccurred.connect(self._on_download_process_error)
@@ -639,8 +645,13 @@ class ProvisionMainWindow(QMainWindow):
         self._worker.finished.connect(self._on_flash_finished)
         self._worker.cancelled.connect(self._on_flash_cancelled)
         self._worker.failed.connect(self._on_worker_failed)
-        self._worker.yes_no_requested.connect(self._on_flash_yes_no_requested, Qt.ConnectionType.BlockingQueuedConnection)
-        self._worker.password_requested.connect(self._on_flash_password_requested, Qt.ConnectionType.BlockingQueuedConnection)
+        self._worker.yes_no_requested.connect(
+            self._on_flash_yes_no_requested, Qt.ConnectionType.BlockingQueuedConnection
+        )
+        self._worker.password_requested.connect(
+            self._on_flash_password_requested,
+            Qt.ConnectionType.BlockingQueuedConnection,
+        )
         self._worker.process_output.connect(self._on_flash_process_output)
         self._thread = run_worker_in_thread(self._worker)
         self._refresh_buttons()
@@ -788,8 +799,14 @@ class ProvisionMainWindow(QMainWindow):
         self.state.host_blkdev_fingerprints = {}
         self._download_ok = False
         self._download_recoverable = False
-        if self._versions_visited and self.state.mr is not None and self.state.combo is not None:
-            self.state.pkg_atoms = ruyi_facade.combo_package_atoms(self.state.combo.entity)
+        if (
+            self._versions_visited
+            and self.state.mr is not None
+            and self.state.combo is not None
+        ):
+            self.state.pkg_atoms = ruyi_facade.combo_package_atoms(
+                self.state.combo.entity
+            )
             self._populate_versions()
             self._set_step(self.STEP_VERSIONS)
         else:
@@ -853,7 +870,9 @@ class ProvisionMainWindow(QMainWindow):
     def _on_download_output(self) -> None:
         if self._download_process is None:
             return
-        data = bytes(self._download_process.readAllStandardOutput()).decode(errors="replace")
+        data = bytes(self._download_process.readAllStandardOutput()).decode(
+            errors="replace"
+        )
         if data:
             self._download_log.appendPlainText(data.rstrip("\n"))
 
@@ -861,14 +880,19 @@ class ProvisionMainWindow(QMainWindow):
         self._download_status.setText(f"Download process error: {error.name}.")
         self._download_ok = False
         self._download_recoverable = True
-        if error == QProcess.ProcessError.FailedToStart and self._download_process is not None:
+        if (
+            error == QProcess.ProcessError.FailedToStart
+            and self._download_process is not None
+        ):
             self._download_process.deleteLater()
             self._download_process = None
         self._refresh_buttons()
 
     def _on_download_process_finished(self, ret: int, _status) -> None:
         if self._download_process is not None:
-            leftover = bytes(self._download_process.readAllStandardOutput()).decode(errors="replace")
+            leftover = bytes(self._download_process.readAllStandardOutput()).decode(
+                errors="replace"
+            )
             if leftover:
                 self._download_log.appendPlainText(leftover.rstrip("\n"))
             self._download_process.deleteLater()
@@ -912,7 +936,9 @@ class ProvisionMainWindow(QMainWindow):
         self._flash_cancel_requested = False
         self.state.flash_ret = ret
         self._flash_recoverable = ret != 0
-        self._flash_status.setText("Flash complete." if ret == 0 else f"Flash failed (exit code {ret}).")
+        self._flash_status.setText(
+            "Flash complete." if ret == 0 else f"Flash failed (exit code {ret})."
+        )
         self._cleanup_thread()
         if ret == 0:
             self._populate_done()
@@ -943,13 +969,17 @@ class ProvisionMainWindow(QMainWindow):
         self._cleanup_thread()
         self._refresh_buttons()
 
-    def _on_flash_yes_no_requested(self, prompt: str, default: bool, response: dict) -> None:
+    def _on_flash_yes_no_requested(
+        self, prompt: str, default: bool, response: dict
+    ) -> None:
         ret = QMessageBox.question(
             self,
             "Flashing needs confirmation",
             prompt,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes if default else QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+            if default
+            else QMessageBox.StandardButton.No,
         )
         response["answer"] = ret == QMessageBox.StandardButton.Yes
 
@@ -966,7 +996,11 @@ class ProvisionMainWindow(QMainWindow):
         self._flash_log.appendPlainText(text)
 
     def _on_log(self, level: str, text: str) -> None:
-        target = self._flash_log if self._current_step == self.STEP_FLASH else self._download_log
+        target = (
+            self._flash_log
+            if self._current_step == self.STEP_FLASH
+            else self._download_log
+        )
         target.appendPlainText(text)
 
     # -------------------------------------------------------------- helpers
@@ -1002,10 +1036,7 @@ class ProvisionMainWindow(QMainWindow):
             item = self._steps.item(row)
             flags = Qt.ItemFlag.ItemIsSelectable
             if row == self._current_step or (
-                (
-                    row < self._current_step
-                    or self._is_completed_flash_history_step(row)
-                )
+                (row < self._current_step or self._is_completed_flash_history_step(row))
                 and self._can_open_step(row)
             ):
                 flags |= Qt.ItemFlag.ItemIsEnabled
@@ -1068,8 +1099,7 @@ class ProvisionMainWindow(QMainWindow):
         if row < 0 or row == self._current_step:
             return
         if self._is_busy() or (
-            row > self._current_step
-            and not self._is_completed_flash_history_step(row)
+            row > self._current_step and not self._is_completed_flash_history_step(row)
         ):
             self._steps.setCurrentRow(self._current_step)
             return
@@ -1108,13 +1138,19 @@ class ProvisionMainWindow(QMainWindow):
         if step == self.STEP_DOWNLOAD:
             return bool(self.state.pkg_atoms)
         if step == self.STEP_STORAGE:
-            return self._download_ok and self.state.prepared is not None and bool(self.state.prepared.requested_host_blkdevs)
+            return (
+                self._download_ok
+                and self.state.prepared is not None
+                and bool(self.state.prepared.requested_host_blkdevs)
+            )
         if step == self.STEP_REVIEW:
             return self._download_ok and self.state.prepared is not None
         if step == self.STEP_FLASH:
             return self.state.flash_ret is not None
         if step == self.STEP_DONE:
-            return self.state.flash_ret == 0 or (self.state.combo is not None and not self.state.pkg_atoms)
+            return self.state.flash_ret == 0 or (
+                self.state.combo is not None and not self.state.pkg_atoms
+            )
         return False
 
     def _is_completed_flash_history_step(self, step: int) -> bool:
@@ -1126,20 +1162,32 @@ class ProvisionMainWindow(QMainWindow):
         return self._review_complete()
 
     def _refresh_summary(self) -> None:
-        self._summary_device.setText(f"Device: {self.state.device.display_name if self.state.device else '-'}")
-        self._summary_variant.setText(f"Variant: {self.state.variant.display_name if self.state.variant else '-'}")
-        self._summary_combo.setText(f"Image: {self.state.combo.display_name if self.state.combo else '-'}")
+        self._summary_device.setText(
+            f"Device: {self.state.device.display_name if self.state.device else '-'}"
+        )
+        self._summary_variant.setText(
+            f"Variant: {self.state.variant.display_name if self.state.variant else '-'}"
+        )
+        self._summary_combo.setText(
+            f"Image: {self.state.combo.display_name if self.state.combo else '-'}"
+        )
         pkgs = ", ".join(self.state.pkg_atoms) if self.state.pkg_atoms else "-"
         self._summary_packages.setText(f"Packages: {pkgs}")
         if self.state.host_blkdev_map:
-            storage = ", ".join(f"{k}: {v}" for k, v in self.state.host_blkdev_map.items())
+            storage = ", ".join(
+                f"{k}: {v}" for k, v in self.state.host_blkdev_map.items()
+            )
         else:
             storage = "-"
         self._summary_storage.setText(f"Storage: {storage}")
 
     def _refresh_buttons(self) -> None:
         busy = self._is_busy()
-        self._back_btn.setEnabled(not busy and self._current_step not in {self.STEP_WELCOME, self.STEP_DOWNLOAD, self.STEP_FLASH})
+        self._back_btn.setEnabled(
+            not busy
+            and self._current_step
+            not in {self.STEP_WELCOME, self.STEP_DOWNLOAD, self.STEP_FLASH}
+        )
         self._next_btn.setEnabled(not busy and self._can_go_next())
         if self._current_step == self.STEP_DONE:
             self._next_btn.setText("Close")
@@ -1148,10 +1196,15 @@ class ProvisionMainWindow(QMainWindow):
         else:
             self._next_btn.setText("Next")
         self._update_repo_btn.setEnabled(not busy and self.state.mr is not None)
-        self._cancel_download_btn.setVisible(self._current_step == self.STEP_DOWNLOAD and self._download_process is not None)
+        self._cancel_download_btn.setVisible(
+            self._current_step == self.STEP_DOWNLOAD
+            and self._download_process is not None
+        )
         self._cancel_download_btn.setEnabled(self._download_process is not None)
         self._download_recovery_row.setVisible(
-            self._current_step == self.STEP_DOWNLOAD and self._download_recoverable and not busy
+            self._current_step == self.STEP_DOWNLOAD
+            and self._download_recoverable
+            and not busy
         )
         self._resume_download_btn.setEnabled(bool(self.state.pkg_atoms))
         self._reselect_versions_btn.setEnabled(self.state.combo is not None)
@@ -1164,7 +1217,11 @@ class ProvisionMainWindow(QMainWindow):
             and self._current_step == self.STEP_STORAGE
             and self.state.prepared is not None
         )
-        flash_recoverable = self._current_step == self.STEP_FLASH and self._flash_recoverable and not busy
+        flash_recoverable = (
+            self._current_step == self.STEP_FLASH
+            and self._flash_recoverable
+            and not busy
+        )
         flash_running = (
             self._current_step == self.STEP_FLASH
             and isinstance(self._worker, FlashWorker)
@@ -1360,7 +1417,9 @@ class ProvisionMainWindow(QMainWindow):
                     continue
                 source = entry.local_path or entry.remote or "(no source)"
                 repo_entries.append(f"{entry.id}: {source}")
-            repos_text = "\n".join(f" * {entry}" for entry in repo_entries) or " * (none)"
+            repos_text = (
+                "\n".join(f" * {entry}" for entry in repo_entries) or " * (none)"
+            )
 
             workspace_ruyinews = (
                 Path(__file__).resolve().parents[2]
@@ -1386,7 +1445,9 @@ class ProvisionMainWindow(QMainWindow):
                 f"{repos_text}"
                 f"{local_hint}"
             )
-            item = QListWidgetItem("No device provisioning data is available in this repository.")
+            item = QListWidgetItem(
+                "No device provisioning data is available in this repository."
+            )
             item.setFlags(Qt.ItemFlag.NoItemFlags)
             self._device_list.addItem(item)
         elif self._device_list.count() > 0:
@@ -1474,7 +1535,8 @@ class ProvisionMainWindow(QMainWindow):
         if not self._version_combos:
             return
         self.state.pkg_atoms = [
-            combo.currentData(Qt.ItemDataRole.UserRole) for combo in self._version_combos
+            combo.currentData(Qt.ItemDataRole.UserRole)
+            for combo in self._version_combos
         ]
 
     def _populate_packages(self) -> None:
@@ -1483,7 +1545,9 @@ class ProvisionMainWindow(QMainWindow):
             for atom in self.state.pkg_atoms:
                 self._packages_list.addItem(atom)
         else:
-            self._packages_list.addItem("No packages. The selected image only contains a post-install message.")
+            self._packages_list.addItem(
+                "No packages. The selected image only contains a post-install message."
+            )
 
     def _populate_storage(
         self,
@@ -1530,7 +1594,9 @@ class ProvisionMainWindow(QMainWindow):
             confirm.setVisible(False)
             confirm.toggled.connect(self._refresh_buttons)
             edit.currentTextChanged.connect(
-                lambda _text, e=edit, w=warning, c=confirm: self._on_storage_target_changed(e, w, c)
+                lambda _text, e=edit, w=warning, c=confirm: (
+                    self._on_storage_target_changed(e, w, c)
+                )
             )
             browse = QPushButton()
             browse.setIcon(
@@ -1644,7 +1710,9 @@ class ProvisionMainWindow(QMainWindow):
             return str(data).strip()
         return edit.currentText().strip()
 
-    def _refresh_storage_mount_warning(self, edit: QComboBox, warning: QLabel, confirm: QCheckBox) -> None:
+    def _refresh_storage_mount_warning(
+        self, edit: QComboBox, warning: QLabel, confirm: QCheckBox
+    ) -> None:
         path = self._storage_path(edit)
         mounted_data = self._storage_item_data(edit, STORAGE_MOUNTED_ROLE)
         if mounted_data is not None:
@@ -1668,7 +1736,9 @@ class ProvisionMainWindow(QMainWindow):
         confirm.setEnabled(mounted)
         self._refresh_buttons()
 
-    def _on_storage_target_changed(self, edit: QComboBox, warning: QLabel, confirm: QCheckBox) -> None:
+    def _on_storage_target_changed(
+        self, edit: QComboBox, warning: QLabel, confirm: QCheckBox
+    ) -> None:
         confirm.setChecked(False)
         self._refresh_storage_mount_warning(edit, warning, confirm)
 
@@ -1745,7 +1815,9 @@ class ProvisionMainWindow(QMainWindow):
             expected_fingerprint = self.state.host_blkdev_fingerprints.get(part)
             if host_storage.validation_is_slow():
                 if expected_fingerprint is None:
-                    return f"The identity of '{path}' was not recorded. Select it again."
+                    return (
+                        f"The identity of '{path}' was not recorded. Select it again."
+                    )
                 continue
             current_fingerprint = host_storage.device_fingerprint(path)
             if (
@@ -1769,7 +1841,9 @@ class ProvisionMainWindow(QMainWindow):
 
     def _populate_review(self) -> None:
         assert self.state.prepared is not None
-        steps = ruyi_facade.compute_pretend_steps(self.state.prepared, self.state.host_blkdev_map)
+        steps = ruyi_facade.compute_pretend_steps(
+            self.state.prepared, self.state.host_blkdev_map
+        )
         self._review_steps.setPlainText("\n".join(f" * {s}" for s in steps))
         missing = ruyi_facade.missing_cmds(self.state.prepared)
         self._review_missing.setText(
@@ -1791,28 +1865,40 @@ class ProvisionMainWindow(QMainWindow):
         assert self.state.prepared is not None
         if ruyi_facade.missing_cmds(self.state.prepared):
             return False
-        if ruyi_facade.needs_fastboot_confirmation(self.state.prepared) and not self._fastboot_ok:
+        if (
+            ruyi_facade.needs_fastboot_confirmation(self.state.prepared)
+            and not self._fastboot_ok
+        ):
             return False
         return self._proceed_cb.isChecked()
 
     def _populate_done(self) -> None:
         if self.state.flash_ret is None and not self.state.pkg_atoms:
-            self._done_label.setText("No flashing was required. See the message below for next steps.")
+            self._done_label.setText(
+                "No flashing was required. See the message below for next steps."
+            )
             self._set_status_kind(self._done_label, "success")
         elif self.state.flash_ret == 0:
-            self._done_label.setText("It seems the flashing has finished without errors. Happy hacking!")
+            self._done_label.setText(
+                "It seems the flashing has finished without errors. Happy hacking!"
+            )
             self._set_status_kind(self._done_label, "success")
         else:
-            self._done_label.setText(f"Flashing failed (exit code {self.state.flash_ret}). Check the device right now.")
+            self._done_label.setText(
+                f"Flashing failed (exit code {self.state.flash_ret}). Check the device right now."
+            )
             self._set_status_kind(self._done_label, "error")
 
         msg = ""
         if self.state.combo is not None and self.state.mr is not None:
-            msg = ruyi_facade.get_postinst_msg(
-                self.state.mr,
-                self.state.combo.entity,
-                self.state.config.lang_code,
-            ) or ""
+            msg = (
+                ruyi_facade.get_postinst_msg(
+                    self.state.mr,
+                    self.state.combo.entity,
+                    self.state.config.lang_code,
+                )
+                or ""
+            )
         self.state.postinst_msg = msg or None
         self._postinst_label.setText(msg)
         self._postinst_label.setVisible(bool(msg))

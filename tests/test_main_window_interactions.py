@@ -22,7 +22,7 @@ from ruyi_device_provision_gui.workers import FlashWorker
 
 @pytest.fixture
 def window(qtbot) -> ProvisionMainWindow:
-    app = QApplication.instance() or QApplication([])
+    _app = QApplication.instance() or QApplication([])
     gm = EnvGlobalModeProvider({}, [])
     emitter = LogEmitter()
     logger = QtRuyiLogger(gm, emitter)
@@ -391,7 +391,9 @@ def test_successful_flash_advances_to_done_and_can_return_to_flash(
     window: ProvisionMainWindow,
 ) -> None:
     window.state.pkg_atoms = ["image/pkg"]
-    window.state.prepared = SimpleNamespace(requested_host_blkdevs=[], needed_cmds=set())
+    window.state.prepared = SimpleNamespace(
+        requested_host_blkdevs=[], needed_cmds=set()
+    )
     window._flash_log.setPlainText("fastboot flash complete")
     window._set_step(window.STEP_FLASH)
 
@@ -424,7 +426,9 @@ def test_successful_flash_advances_to_done_and_can_return_to_flash(
 
 
 def test_failed_flash_stays_on_flash_page(window: ProvisionMainWindow) -> None:
-    window.state.prepared = SimpleNamespace(requested_host_blkdevs=[], needed_cmds=set())
+    window.state.prepared = SimpleNamespace(
+        requested_host_blkdevs=[], needed_cmds=set()
+    )
     window._set_step(window.STEP_FLASH)
 
     window._on_flash_finished(1)
@@ -473,7 +477,9 @@ def test_interrupted_flash_becomes_recoverable(window: ProvisionMainWindow) -> N
     assert window._flash_recovery_row.isVisibleTo(window)
 
 
-@pytest.mark.skipif(platform.system() == "Windows", reason="native Windows flashing is unsupported")
+@pytest.mark.skipif(
+    platform.system() == "Windows", reason="native Windows flashing is unsupported"
+)
 @pytest.mark.parametrize("command", ["dd", "fastboot"])
 def test_flash_worker_interrupts_active_command(
     monkeypatch,
@@ -493,11 +499,15 @@ def test_flash_worker_interrupts_active_command(
         {"disk": "reviewed-device"},
         set(),
     )  # type: ignore[arg-type]
-    monkeypatch.setattr(host_storage, "device_fingerprint", lambda _path: "reviewed-device")
+    monkeypatch.setattr(
+        host_storage, "device_fingerprint", lambda _path: "reviewed-device"
+    )
     monkeypatch.setattr(host_storage, "is_disk_or_child_mounted", lambda _path: False)
     argv = ["dd", f"of={target}"] if command == "dd" else ["fastboot", "flash"]
     result: list[int] = []
-    thread = threading.Thread(target=lambda: result.append(worker._call_subprocess(argv)))
+    thread = threading.Thread(
+        target=lambda: result.append(worker._call_subprocess(argv))
+    )
 
     thread.start()
     deadline = time.monotonic() + 2
@@ -517,13 +527,18 @@ def test_unflashed_done_back_returns_to_fresh_review(
     monkeypatch,
 ) -> None:
     window.state.pkg_atoms = ["image/pkg"]
-    window.state.prepared = SimpleNamespace(requested_host_blkdevs=[], needed_cmds=set())
+    window.state.prepared = SimpleNamespace(
+        requested_host_blkdevs=[], needed_cmds=set()
+    )
     window._proceed_cb.setChecked(True)
     window._fastboot_ok = True
     monkeypatch.setattr(
         window,
         "_populate_review",
-        lambda: (window._proceed_cb.setChecked(False), setattr(window, "_fastboot_ok", False)),
+        lambda: (
+            window._proceed_cb.setChecked(False),
+            setattr(window, "_fastboot_ok", False),
+        ),
     )
     window._set_step(window.STEP_DONE)
 
@@ -570,12 +585,12 @@ def test_flash_worker_rejects_multiple_dd_outputs(monkeypatch, tmp_path) -> None
         {"disk": "reviewed-device"},
         set(),
     )  # type: ignore[arg-type]
-    monkeypatch.setattr(host_storage, "device_fingerprint", lambda _path: "reviewed-device")
+    monkeypatch.setattr(
+        host_storage, "device_fingerprint", lambda _path: "reviewed-device"
+    )
 
     with pytest.raises(RuntimeError, match="exactly one"):
-        worker._call_subprocess(
-            ["dd", "if=image", f"of={target}", f"of={other}"]
-        )
+        worker._call_subprocess(["dd", "if=image", f"of={target}", f"of={other}"])
 
 
 def test_slow_storage_discovery_does_not_block_ui(

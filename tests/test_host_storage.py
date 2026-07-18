@@ -23,7 +23,9 @@ def test_disk_mount_detection_checks_children(monkeypatch) -> None:
     assert host_storage.is_disk_or_child_mounted("/dev/sda")
 
 
-def test_linux_mount_detection_fails_closed_when_topology_is_unknown(monkeypatch) -> None:
+def test_linux_mount_detection_fails_closed_when_topology_is_unknown(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(host_storage.platform, "system", lambda: "Linux")
     monkeypatch.setattr(
         host_storage,
@@ -34,7 +36,9 @@ def test_linux_mount_detection_fails_closed_when_topology_is_unknown(monkeypatch
     assert host_storage.is_disk_or_child_mounted("/dev/sda")
 
 
-def test_linux_mount_detection_follows_holder_devices(monkeypatch, tmp_path: Path) -> None:
+def test_linux_mount_detection_follows_holder_devices(
+    monkeypatch, tmp_path: Path
+) -> None:
     disk = tmp_path / "sda"
     partition = disk / "sda1"
     holder = partition / "holders" / "dm-0"
@@ -43,7 +47,9 @@ def test_linux_mount_detection_follows_holder_devices(monkeypatch, tmp_path: Pat
     (partition / "dev").write_text("8:1")
     (partition / "partition").write_text("")
     (holder / "dev").write_text("253:0")
-    monkeypatch.setattr(host_storage, "_path_block_device_id", lambda _path: os.makedev(8, 0))
+    monkeypatch.setattr(
+        host_storage, "_path_block_device_id", lambda _path: os.makedev(8, 0)
+    )
     monkeypatch.setattr(host_storage, "_linux_sysfs_node", lambda _device_id: disk)
     monkeypatch.setattr(
         host_storage,
@@ -65,7 +71,9 @@ def test_linux_disks_sort_unmounted_before_mounted(monkeypatch) -> None:
     fake_paths = [FakePath("sdc"), FakePath("sda"), FakePath("sdb"), FakePath("sdd")]
     monkeypatch.setattr(host_storage.platform, "system", lambda: "Linux")
     monkeypatch.setattr(host_storage.pathlib.Path, "iterdir", lambda _path: fake_paths)
-    monkeypatch.setattr(host_storage.pathlib.Path, "is_block_device", lambda _path: True)
+    monkeypatch.setattr(
+        host_storage.pathlib.Path, "is_block_device", lambda _path: True
+    )
     monkeypatch.setattr(host_storage, "_skip_block_device_name", lambda _name: False)
     monkeypatch.setattr(host_storage, "_sysfs_disk_size", lambda _dev: "32.0 GiB")
     monkeypatch.setattr(host_storage, "_read_sysfs_text", lambda _path: "Test Disk")
@@ -139,9 +147,7 @@ def test_darwin_apfs_volume_marks_physical_store_mounted(monkeypatch) -> None:
             return {
                 "Containers": [
                     {
-                        "PhysicalStores": [
-                            {"DeviceIdentifier": "disk0s2"}
-                        ],
+                        "PhysicalStores": [{"DeviceIdentifier": "disk0s2"}],
                         "Volumes": [
                             {
                                 "DeviceIdentifier": "disk3s1",
@@ -159,7 +165,9 @@ def test_darwin_apfs_volume_marks_physical_store_mounted(monkeypatch) -> None:
     assert host_storage._darwin_disk_or_child_mounted("/dev/rdisk0")
 
 
-def test_darwin_file_named_disk_is_not_treated_as_device(monkeypatch, tmp_path: Path) -> None:
+def test_darwin_file_named_disk_is_not_treated_as_device(
+    monkeypatch, tmp_path: Path
+) -> None:
     image = tmp_path / "disk.img"
     image.touch()
     monkeypatch.setattr(host_storage.platform, "system", lambda: "Darwin")

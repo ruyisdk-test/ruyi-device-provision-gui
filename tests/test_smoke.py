@@ -87,7 +87,7 @@ def test_main_window_constructs(qtbot) -> None:
     from ruyi_device_provision_gui.qt_logger import LogEmitter, QtRuyiLogger
     from ruyi_device_provision_gui.main_window import ProvisionMainWindow
 
-    app = QApplication.instance() or QApplication([])
+    _app = QApplication.instance() or QApplication([])
     gm = EnvGlobalModeProvider({}, [])
     emitter = LogEmitter()
     logger = QtRuyiLogger(gm, emitter)
@@ -119,8 +119,13 @@ def test_flash_worker_adds_dd_progress_on_linux(monkeypatch) -> None:
         "of=b",
         "status=progress",
     ]
-    assert FlashWorker._argv_with_gui_progress(["fastboot", "devices"]) == ["fastboot", "devices"]
-    assert FlashWorker._argv_with_gui_progress(["dd", "if=a", "of=b", "status=none"]) == [
+    assert FlashWorker._argv_with_gui_progress(["fastboot", "devices"]) == [
+        "fastboot",
+        "devices",
+    ]
+    assert FlashWorker._argv_with_gui_progress(
+        ["dd", "if=a", "of=b", "status=none"]
+    ) == [
         "dd",
         "if=a",
         "of=b",
@@ -134,7 +139,11 @@ def test_flash_worker_does_not_add_dd_progress_on_macos(monkeypatch) -> None:
 
     monkeypatch.setattr(workers.platform, "system", lambda: "Darwin")
 
-    assert FlashWorker._argv_with_gui_progress(["dd", "if=a", "of=b"]) == ["dd", "if=a", "of=b"]
+    assert FlashWorker._argv_with_gui_progress(["dd", "if=a", "of=b"]) == [
+        "dd",
+        "if=a",
+        "of=b",
+    ]
 
 
 def test_flash_worker_emits_carriage_return_output() -> None:
