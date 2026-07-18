@@ -537,7 +537,7 @@ class ProvisionMainWindow(QMainWindow):
         self._welcome_status = QLabel("Preparing the RuyiSDK metadata repository...")
         self._welcome_status.setWordWrap(True)
         self._add_page(
-            "Oh My Ruyi",
+            "RuyiSDK Device Provisioning",
             [
                 QLabel(
                     "This screen walks through the same flow as `ruyi device provision`. "

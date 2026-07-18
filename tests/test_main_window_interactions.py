@@ -64,6 +64,9 @@ def test_feature_tabs_are_in_required_order(window: ProvisionMainWindow) -> None
     assert window._tabs.widget(2) is window._provision_tab
     assert window._repo_manager_tab.layout() is None
     assert window._config_manager_tab.layout() is None
+    assert window._stack.widget(window.STEP_WELCOME).accessibleName() == (
+        "RuyiSDK Device Provisioning"
+    )
 
 
 def test_version_tables_separate_available_and_downloaded_versions(
