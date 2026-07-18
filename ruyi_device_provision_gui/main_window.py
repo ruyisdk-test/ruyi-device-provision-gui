@@ -668,7 +668,7 @@ class ProvisionMainWindow(QMainWindow):
         self._on_fastboot_stderr(process)
         stdout = self._fastboot_output.strip()
         stderr = self._fastboot_error_output.strip()
-        devices = ruyi_facade.parse_fastboot_devices(stdout)
+        output = "\n".join(part for part in (stdout, stderr) if part)
         if self._fastboot_timed_out:
             self._complete_fastboot_check(process, False, "fastboot devices timed out.")
         elif ret != 0:
@@ -677,17 +677,13 @@ class ProvisionMainWindow(QMainWindow):
                 False,
                 stderr or stdout or f"fastboot devices exited with code {ret}.",
             )
-        elif not devices:
-            detail = stderr or stdout
-            message = "No fastboot devices found."
-            if detail:
-                message += "\n" + detail
-            self._complete_fastboot_check(process, False, message)
+        elif not output:
+            self._complete_fastboot_check(process, False, "No fastboot devices found.")
         else:
             self._complete_fastboot_check(
                 process,
                 True,
-                "fastboot devices found:\n" + "\n".join(devices),
+                "fastboot devices output:\n" + output,
             )
 
     def _on_fastboot_error(

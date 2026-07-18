@@ -446,22 +446,11 @@ def check_fastboot_devices() -> tuple[bool, str]:
     except subprocess.TimeoutExpired:
         return False, "fastboot devices timed out."
 
-    output = (proc.stdout + proc.stderr).strip()
+    output = "\n".join(part for part in (proc.stdout, proc.stderr) if part).strip()
     if proc.returncode != 0:
         return False, output or f"fastboot devices exited with code {proc.returncode}."
 
-    devices = parse_fastboot_devices(proc.stdout)
-    return bool(devices), output or "No fastboot devices found."
-
-
-def parse_fastboot_devices(output: str) -> list[str]:
-    """Return valid ``fastboot devices`` records from stdout."""
-    devices: list[str] = []
-    for line in output.splitlines():
-        fields = line.split()
-        if len(fields) == 2 and fields[1] == "fastboot":
-            devices.append(line.strip())
-    return devices
+    return bool(output), output or "No fastboot devices found."
 
 
 def run_flash(

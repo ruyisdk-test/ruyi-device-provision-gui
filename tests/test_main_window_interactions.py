@@ -261,40 +261,76 @@ def test_fastboot_check_reports_no_devices(
     assert window._fastboot_status.text() == "No fastboot devices found."
 
 
-def test_fastboot_check_ignores_stderr_only_output(
+def test_fastboot_check_accepts_nonempty_stderr_without_parsing(
     window: ProvisionMainWindow,
     monkeypatch,
     qtbot,
     tmp_path,
 ) -> None:
     fastboot = tmp_path / "fastboot"
-    fastboot.write_text("#!/bin/sh\nprintf 'warning only\\n' >&2\nexit 0\n")
+    fastboot.write_text("#!/bin/sh\nprintf 'device output\\n' >&2\nexit 0\n")
     fastboot.chmod(0o755)
     monkeypatch.setattr(main_window, "FASTBOOT_PROGRAM", os.fspath(fastboot))
 
     window._check_fastboot_devices()
 
     qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
-    assert not window._fastboot_ok
-    assert "No fastboot devices found." in window._fastboot_status.text()
+    assert window._fastboot_ok
+    assert "device output" in window._fastboot_status.text()
 
 
-def test_fastboot_check_rejects_malformed_stdout(
+def test_fastboot_check_accepts_device_record_on_stderr(
     window: ProvisionMainWindow,
     monkeypatch,
     qtbot,
     tmp_path,
 ) -> None:
     fastboot = tmp_path / "fastboot"
-    fastboot.write_text("#!/bin/sh\nprintf 'warning fastboot unavailable\\n'\n")
+    fastboot.write_text("#!/bin/sh\nprintf 'SERIAL\\tfastboot\\n' >&2\nexit 0\n")
     fastboot.chmod(0o755)
     monkeypatch.setattr(main_window, "FASTBOOT_PROGRAM", os.fspath(fastboot))
 
     window._check_fastboot_devices()
 
     qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
-    assert not window._fastboot_ok
-    assert "No fastboot devices found." in window._fastboot_status.text()
+    assert window._fastboot_ok
+    assert "SERIAL" in window._fastboot_status.text()
+
+
+def test_fastboot_check_accepts_dfu_download_output(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+    tmp_path,
+) -> None:
+    fastboot = tmp_path / "fastboot"
+    fastboot.write_text("#!/bin/sh\nprintf 'dfu-device       DFU download\\n'\n")
+    fastboot.chmod(0o755)
+    monkeypatch.setattr(main_window, "FASTBOOT_PROGRAM", os.fspath(fastboot))
+
+    window._check_fastboot_devices()
+
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
+    assert window._fastboot_ok
+    assert "dfu-device       DFU download" in window._fastboot_status.text()
+
+
+def test_fastboot_check_accepts_nonempty_stdout_without_parsing(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+    tmp_path,
+) -> None:
+    fastboot = tmp_path / "fastboot"
+    fastboot.write_text("#!/bin/sh\nprintf 'unrecognized device format\\n'\n")
+    fastboot.chmod(0o755)
+    monkeypatch.setattr(main_window, "FASTBOOT_PROGRAM", os.fspath(fastboot))
+
+    window._check_fastboot_devices()
+
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
+    assert window._fastboot_ok
+    assert "unrecognized device format" in window._fastboot_status.text()
 
 
 def test_flash_rejects_replaced_target(
