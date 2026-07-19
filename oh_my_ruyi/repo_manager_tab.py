@@ -40,24 +40,70 @@ class _RepoUpdateDialog(QDialog):
     """Show imported ruyi update output and request cancellation."""
 
     cancel_requested = Signal()
+    read_news_requested = Signal()
+    mark_all_news_read_requested = Signal()
 
     def __init__(self, repo_id: str, parent=None) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle("Repository update")
         self.resize(760, 440)
+        self._news_actions_started = False
+        self._news_action_running = False
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Running: ruyi update --repo {repo_id}"))
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         layout.addWidget(self.log, 1)
+        news_row = QHBoxLayout()
+        self.read_news_button = QPushButton("Read unread news")
+        self.mark_all_news_read_button = QPushButton("Mark all news as read")
+        self.read_news_button.setAccessibleName("Read unread news")
+        self.mark_all_news_read_button.setAccessibleName("Mark all news as read")
+        self.read_news_button.clicked.connect(self._request_read_news)
+        self.mark_all_news_read_button.clicked.connect(self._request_mark_all_news_read)
+        self.read_news_button.setEnabled(False)
+        self.mark_all_news_read_button.setEnabled(False)
+        news_row.addWidget(self.read_news_button)
+        news_row.addWidget(self.mark_all_news_read_button)
+        news_row.addStretch()
+        layout.addLayout(news_row)
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
         row = QHBoxLayout()
         row.addStretch()
         row.addWidget(self.cancel_button)
         layout.addLayout(row)
+
+    def _request_read_news(self) -> None:
+        if self._news_actions_started:
+            return
+        self._news_actions_started = True
+        self._news_action_running = True
+        self.read_news_button.setEnabled(False)
+        self.mark_all_news_read_button.setEnabled(False)
+        self.cancel_button.setEnabled(False)
+        self.read_news_requested.emit()
+
+    def _request_mark_all_news_read(self) -> None:
+        if self._news_actions_started:
+            return
+        self._news_actions_started = True
+        self._news_action_running = True
+        self.read_news_button.setEnabled(False)
+        self.mark_all_news_read_button.setEnabled(False)
+        self.cancel_button.setEnabled(False)
+        self.mark_all_news_read_requested.emit()
+
+    def enable_news_actions(self) -> None:
+        if not self._news_actions_started:
+            self.read_news_button.setEnabled(True)
+            self.mark_all_news_read_button.setEnabled(True)
+
+    def finish_news_action(self) -> None:
+        self._news_action_running = False
+        self.cancel_button.setEnabled(True)
 
     def append_output(self, text: str) -> None:
         self.log.moveCursor(self.log.textCursor().MoveOperation.End)
@@ -74,8 +120,11 @@ class _RepoUpdateDialog(QDialog):
         self.setWindowTitle(
             "Repository update complete" if success else "Repository update failed"
         )
+        self.enable_news_actions()
 
     def reject(self) -> None:  # noqa: D401
+        if self._news_action_running:
+            return
         if self.cancel_button.text() == "Cancel":
             self.cancel_requested.emit()
             return
@@ -241,6 +290,7 @@ class RepoManagementTab(QWidget):
         )
         self._repos: tuple[repo_manager.ConfiguredRepo, ...] = ()
         self._process: QProcess | None = None
+        self._news_process: QProcess | None = None
         self._updating_repo_id: str | None = None
         self._update_success_message = ""
         self._provision_update = False
@@ -371,7 +421,7 @@ class RepoManagementTab(QWidget):
 
     @property
     def is_busy(self) -> bool:
-        return self._process is not None
+        return self._process is not None or self._news_process is not None
 
     @property
     def can_cancel(self) -> bool:
@@ -679,6 +729,12 @@ class RepoManagementTab(QWidget):
         dialog = _RepoUpdateDialog(repo_id, self)
         self._update_dialog = dialog
         dialog.cancel_requested.connect(self._cancel_process)
+        dialog.read_news_requested.connect(
+            lambda d=dialog: self._start_news_action(d, "read")
+        )
+        dialog.mark_all_news_read_requested.connect(
+            lambda d=dialog: self._start_news_action(d, "mark")
+        )
 
         process = QProcess(self)
         self._process = process
@@ -800,6 +856,91 @@ class RepoManagementTab(QWidget):
             self.repository_updated.emit(repo_id)
         if provision_update:
             self.provision_update_finished.emit(success, message)
+
+    def _start_news_action(self, dialog: _RepoUpdateDialog, action: str) -> None:
+        if self._news_process is not None:
+            return
+        process = QProcess(self)
+        self._news_process = process
+        process.setProgram(sys.executable)
+        process.setArguments(
+            [
+                "-m",
+                "oh_my_ruyi.repo_news_child",
+                os.fspath(self._config_path),
+                action,
+            ]
+        )
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONUNBUFFERED", "1")
+        env.insert("RUYI_TELEMETRY_OPTOUT", "1")
+        process.setProcessEnvironment(env)
+        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        process.readyReadStandardOutput.connect(
+            lambda p=process, d=dialog: self._read_news_output(p, d)
+        )
+        process.finished.connect(
+            lambda code, status, p=process, d=dialog: self._on_news_finished(
+                p, d, action, code, status
+            )
+        )
+        process.errorOccurred.connect(
+            lambda error, p=process, d=dialog: self._on_news_error(p, d, error)
+        )
+        dialog.append_output(
+            "\nReading unread news...\n"
+            if action == "read"
+            else "\nMarking all news as read...\n"
+        )
+        self.busy_changed.emit(True)
+        self._refresh_buttons()
+        process.start()
+
+    @staticmethod
+    def _read_news_output(process: QProcess, dialog: _RepoUpdateDialog) -> None:
+        text = bytes(process.readAllStandardOutput()).decode(errors="replace")
+        dialog.append_output(text)
+
+    def _on_news_finished(
+        self,
+        process: QProcess,
+        dialog: _RepoUpdateDialog,
+        action: str,
+        code: int,
+        _status,
+    ) -> None:
+        if process is not self._news_process:
+            return
+        self._read_news_output(process, dialog)
+        self._news_process = None
+        process.deleteLater()
+        if code == 0:
+            dialog.append_output(
+                "\nNews read and marked as read.\n"
+                if action == "read"
+                else "\nAll news marked as read.\n"
+            )
+        else:
+            dialog.append_output(f"\nNews operation failed with exit code {code}.\n")
+        dialog.finish_news_action()
+        self.busy_changed.emit(False)
+        self._refresh_buttons()
+
+    def _on_news_error(
+        self,
+        process: QProcess,
+        dialog: _RepoUpdateDialog,
+        error: QProcess.ProcessError,
+    ) -> None:
+        if process is not self._news_process:
+            return
+        if error == QProcess.ProcessError.FailedToStart:
+            dialog.append_output("\nFailed to start the news operation.\n")
+            self._news_process = None
+            process.deleteLater()
+            dialog.finish_news_action()
+            self.busy_changed.emit(False)
+            self._refresh_buttons()
 
     def _set_status(self, text: str, kind: str | None) -> None:
         self.status.setText(text)

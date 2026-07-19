@@ -24,6 +24,7 @@ def test_package_imports_cleanly() -> None:
         qt_logger,
         repo_manager,
         repo_manager_tab,
+        repo_news_child,
         repo_presets,
         repo_update_child,
         ruyi_facade,

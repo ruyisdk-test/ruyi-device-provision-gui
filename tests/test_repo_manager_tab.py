@@ -12,7 +12,11 @@ from PySide6.QtWidgets import QApplication, QDialog
 
 from oh_my_ruyi import repo_manager
 from oh_my_ruyi import repo_manager_tab as repo_manager_tab_module
-from oh_my_ruyi.repo_manager_tab import RepoManagementTab, _RepoSourceDialog
+from oh_my_ruyi.repo_manager_tab import (
+    RepoManagementTab,
+    _RepoSourceDialog,
+    _RepoUpdateDialog,
+)
 
 
 class _FakeProcess:
@@ -96,6 +100,24 @@ active = true
     assert tab.remove_button.isEnabled()
     assert tab.toggle_button.text() == "Enable"
     assert not tab.update_button.isEnabled()
+
+
+def test_update_dialog_news_actions_disable_together(qtbot) -> None:
+    _app = QApplication.instance() or QApplication([])
+    dialog = _RepoUpdateDialog("ruyisdk")
+    qtbot.addWidget(dialog)
+    read_requests: list[None] = []
+    dialog.read_news_requested.connect(lambda: read_requests.append(None))
+
+    dialog.complete(True, "Updated ruyisdk.")
+    assert dialog.read_news_button.isEnabled()
+    assert dialog.mark_all_news_read_button.isEnabled()
+
+    dialog.read_news_button.click()
+
+    assert read_requests == [None]
+    assert not dialog.read_news_button.isEnabled()
+    assert not dialog.mark_all_news_read_button.isEnabled()
 
 
 def test_source_dialog_locks_presets_and_enables_custom(qtbot) -> None:
@@ -597,6 +619,57 @@ def test_update_child_imports_ruyi_for_local_only_repo(tmp_path: Path) -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "syncing repo 'local-test'" in completed.stderr
+
+
+def test_news_child_reads_and_marks_unread_news(tmp_path: Path) -> None:
+    config = tmp_path / "config" / "ruyi" / "config.toml"
+    local_repo = tmp_path / "local-repo"
+    local_repo.mkdir(parents=True)
+    pygit2.init_repository(local_repo, bare=False)
+    (local_repo / "config.toml").write_text(
+        """ruyi-repo = "v1"
+
+[[mirrors]]
+id = "ruyi-dist"
+urls = ["https://example.test/dist/"]
+"""
+    )
+    news_dir = local_repo / "news"
+    news_dir.mkdir()
+    (news_dir / "2026-07-19-test.en_US.md").write_text(
+        """---
+title: Test news
+---
+
+This is unread news.
+"""
+    )
+    config.parent.mkdir(parents=True)
+    config.write_text(f'[repo]\nlocal = "{local_repo}"\n')
+
+    env = os.environ.copy()
+    env["XDG_CONFIG_HOME"] = os.fspath(config.parent.parent)
+    env["XDG_STATE_HOME"] = os.fspath(tmp_path / "state")
+    env["RUYI_TELEMETRY_OPTOUT"] = "1"
+    read = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "oh_my_ruyi.repo_news_child",
+            os.fspath(config),
+            "read",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert read.returncode == 0, read.stderr
+    assert "This is unread news." in read.stdout
+    assert (
+        "2026-07-19-test" in (tmp_path / "state" / "ruyi" / "news.read.txt").read_text()
+    )
 
 
 def test_update_cancellation_terminates_the_process_group(
