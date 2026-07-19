@@ -423,7 +423,6 @@ class ProvisionMainWindow(QMainWindow):
         self._set_step(self.STEP_WELCOME)
         if auto_start:
             self._refresh_pm_catalog()
-            self._start_repo_init()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
         self._stop_fastboot_check()
@@ -550,12 +549,21 @@ class ProvisionMainWindow(QMainWindow):
         )
         self._repo_manager_tab.repository_updated.connect(self._on_managed_repo_updated)
         self._repo_manager_tab.busy_changed.connect(self._on_repo_manager_busy_changed)
+        self._repo_manager_tab.provision_update_finished.connect(
+            self._on_provision_repo_update_finished
+        )
         self._provision_tab = provision_tab
         self._tabs.addTab(self._version_manager_tab, "Version Management")
         self._tabs.addTab(self._repo_manager_tab, "Repo Management")
         self._tabs.addTab(self._provision_tab, "Device Provision")
+        self._tabs.currentChanged.connect(self._on_feature_tab_changed)
         self.setCentralWidget(self._tabs)
         self._apply_styles()
+
+    def _on_feature_tab_changed(self, index: int) -> None:
+        if index != self._tabs.indexOf(self._provision_tab):
+            return
+        self._repo_manager_tab.start_provision_update()
 
     def _on_repo_configuration_changed(self, repo_id: str) -> None:
         if self._config_loader is not None:
@@ -602,14 +610,27 @@ class ProvisionMainWindow(QMainWindow):
         self._download_recoverable = False
         self._flash_recoverable = False
         self._device_list.clear()
-        self._welcome_status.setText(
-            "The default repository configuration changed. Update it before "
-            "provisioning a device."
-        )
-        self._device_status.setText(
-            "The default repository configuration changed. Update metadata to "
-            "reload devices."
-        )
+        if self._repo_manager_tab.default_repo_active:
+            welcome_message = (
+                "The default repository configuration changed. Update it before "
+                "provisioning a device."
+            )
+            device_message = (
+                "The default repository configuration changed. Update metadata to "
+                "reload devices."
+            )
+        else:
+            welcome_message = (
+                "The ruyisdk repository is disabled. Enable it in Repo Management "
+                "to load device metadata."
+            )
+            device_message = (
+                "The ruyisdk repository is disabled. Enable it in Repo Management "
+                "before provisioning a device."
+            )
+        self._welcome_status.setText(welcome_message)
+        self._set_status_kind(self._welcome_status, "warning")
+        self._device_status.setText(device_message)
         self._set_status_kind(self._device_status, "warning")
         self._refresh_summary()
         self._set_step(self.STEP_WELCOME)
@@ -617,6 +638,24 @@ class ProvisionMainWindow(QMainWindow):
     def _on_repo_manager_busy_changed(self, _busy: bool) -> None:
         self._refresh_buttons()
         self._refresh_pm_buttons()
+
+    def _on_provision_repo_update_finished(self, success: bool, message: str) -> None:
+        if not success:
+            self._welcome_status.setText(message)
+            self._set_status_kind(self._welcome_status, "warning")
+            self._refresh_buttons()
+            return
+        if self._config_loader is not None:
+            try:
+                self.state.config = self._config_loader()
+            except BaseException as exc:  # noqa: BLE001
+                self._welcome_status.setText(
+                    f"Repository updated, but configuration reload failed: {exc}"
+                )
+                self._set_status_kind(self._welcome_status, "error")
+                self._refresh_buttons()
+                return
+        self._start_repo_init()
 
     def _build_version_manager_tab(self) -> QWidget:
         tab = QWidget()
@@ -782,6 +821,7 @@ class ProvisionMainWindow(QMainWindow):
     def _build_pages(self) -> None:
         self._welcome_status = QLabel("Preparing the RuyiSDK metadata repository...")
         self._welcome_status.setWordWrap(True)
+        self._welcome_status.setProperty("statusKind", "warning")
         self._add_page(
             "RuyiSDK Device Provisioning",
             [
@@ -1430,7 +1470,7 @@ class ProvisionMainWindow(QMainWindow):
         return QDesktopServices.openUrl(QUrl.fromLocalFile(os.fspath(path.parent)))
 
     def _start_repo_init(self) -> None:
-        if self._repo_manager_tab.is_busy:
+        if self._repo_manager_tab.is_busy or self._thread is not None:
             return
         self._next_btn.setEnabled(False)
         self._worker = RepoInitWorker(self.state.config)
@@ -1870,6 +1910,7 @@ class ProvisionMainWindow(QMainWindow):
     def _on_repo_ready(self, mr) -> None:
         self.state.mr = mr
         self._welcome_status.setText("RuyiSDK metadata repository is ready.")
+        self._set_status_kind(self._welcome_status, "success")
         self._cleanup_thread()
         self._populate_devices()
         self._set_step(self.STEP_DEVICE)

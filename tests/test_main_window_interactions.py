@@ -41,6 +41,9 @@ def window(qtbot, tmp_path) -> ProvisionMainWindow:
     telemetry_installation = tmp_path / "state" / "installation.json"
     telemetry_installation.parent.mkdir(parents=True)
     telemetry_installation.write_text("{}")
+    repo_config = tmp_path / "config" / "ruyi" / "config.toml"
+    repo_config.parent.mkdir(parents=True)
+    repo_config.write_text("[repo]\ndisabled = true\n")
     result = ProvisionMainWindow(
         config,
         logger,
@@ -50,7 +53,7 @@ def window(qtbot, tmp_path) -> ProvisionMainWindow:
         activation_link=tmp_path / "bin" / "ruyi",
         telemetry_installation=telemetry_installation,
         system_ruyi_config=tmp_path / "etc" / "ruyi" / "config.toml",
-        repo_config_path=tmp_path / "config" / "ruyi" / "config.toml",
+        repo_config_path=repo_config,
     )
     qtbot.addWidget(result)
     return result
@@ -88,6 +91,60 @@ def test_repo_init_disables_repo_management(
     assert not window._repo_manager_tab.preset_table.isEnabled()
     window._thread = None
     window._worker = None
+
+
+def test_disabled_default_repo_stays_on_ready_page(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    gm = EnvGlobalModeProvider({}, [])
+    emitter = LogEmitter()
+    logger = QtRuyiLogger(gm, emitter)
+    config = GlobalConfig(gm, logger)
+    repo_config = tmp_path / "config" / "ruyi" / "config.toml"
+    repo_config.parent.mkdir(parents=True)
+    repo_config.write_text("[repo]\ndisabled = true\n")
+    monkeypatch.setattr(ProvisionMainWindow, "_refresh_pm_catalog", lambda _self: None)
+
+    window = ProvisionMainWindow(
+        config,
+        logger,
+        emitter,
+        versions_directory=tmp_path / "versions",
+        activation_link=tmp_path / "bin" / "ruyi",
+        telemetry_installation=tmp_path / "installation.json",
+        system_ruyi_config=tmp_path / "etc" / "ruyi" / "config.toml",
+        repo_config_path=repo_config,
+    )
+    qtbot.addWidget(window)
+    window._tabs.setCurrentWidget(window._provision_tab)
+
+    assert window._thread is None
+    assert window._current_step == window.STEP_WELCOME
+    assert window._welcome_status.text() == (
+        "Enable the ruyisdk repository in Repo Management to load device metadata."
+    )
+    assert window._welcome_status.property("statusKind") == "warning"
+
+
+def test_provision_update_waits_for_device_tab_switch(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    calls: list[None] = []
+    monkeypatch.setattr(
+        window._repo_manager_tab,
+        "start_provision_update",
+        lambda: calls.append(None),
+    )
+
+    assert calls == []
+    window._tabs.setCurrentWidget(window._repo_manager_tab)
+    assert calls == []
+    window._tabs.setCurrentWidget(window._provision_tab)
+    assert len(calls) == 1
 
 
 def test_version_tables_separate_available_and_downloaded_versions(

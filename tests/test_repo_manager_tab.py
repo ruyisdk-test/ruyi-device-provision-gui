@@ -189,6 +189,92 @@ def test_default_repo_without_configured_source_stays_custom(qtbot) -> None:
     assert dialog.source_combo.currentText() == "Custom"
 
 
+def test_provision_update_skips_disabled_default_repo(
+    qtbot,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    config = tmp_path / "ruyi" / "config.toml"
+    config.parent.mkdir()
+    config.write_text("[repo]\ndisabled = true\n")
+    tab = RepoManagementTab(config_path=config)
+    qtbot.addWidget(tab)
+    started: list[tuple[str, str]] = []
+    finished: list[tuple[bool, str]] = []
+    monkeypatch.setattr(
+        tab,
+        "_start_update",
+        lambda repo_id, message: started.append((repo_id, message)),
+    )
+    tab.provision_update_finished.connect(
+        lambda success, message: finished.append((success, message))
+    )
+
+    tab.start_provision_update()
+
+    assert not tab.default_repo_active
+    assert started == []
+    assert finished == [
+        (
+            False,
+            "Enable the ruyisdk repository in Repo Management to load device metadata.",
+        )
+    ]
+
+
+def test_provision_update_uses_active_default_repo(
+    qtbot,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    tab = RepoManagementTab(config_path=tmp_path / "ruyi" / "config.toml")
+    qtbot.addWidget(tab)
+    started: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        tab,
+        "_start_update",
+        lambda repo_id, message: started.append((repo_id, message)),
+    )
+
+    tab.start_provision_update()
+
+    assert tab.default_repo_active
+    assert started == [
+        ("ruyisdk", "RuyiSDK metadata repository is ready."),
+    ]
+    assert tab._provision_update
+
+
+def test_provision_update_retries_after_failure_but_not_after_success(
+    qtbot,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    tab = RepoManagementTab(config_path=tmp_path / "ruyi" / "config.toml")
+    qtbot.addWidget(tab)
+    started: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        tab,
+        "_start_update",
+        lambda repo_id, message: started.append((repo_id, message)),
+    )
+
+    tab.start_provision_update()
+    tab._finish_update(False, "update failed")
+    tab.start_provision_update()
+    tab._finish_update(True, "update succeeded")
+    tab.start_provision_update()
+
+    assert started == [
+        ("ruyisdk", "RuyiSDK metadata repository is ready."),
+        ("ruyisdk", "RuyiSDK metadata repository is ready."),
+    ]
+    assert tab.provision_update_succeeded
+
+
 def test_ruyisdk_presets_keep_declared_order_and_custom_last(qtbot) -> None:
     _app = QApplication.instance() or QApplication([])
     dialog = _RepoSourceDialog(

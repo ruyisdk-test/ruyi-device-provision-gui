@@ -225,6 +225,7 @@ class RepoManagementTab(QWidget):
     configuration_changed = Signal(str)
     repository_updated = Signal(str)
     busy_changed = Signal(bool)
+    provision_update_finished = Signal(bool, str)
 
     def __init__(
         self,
@@ -242,6 +243,8 @@ class RepoManagementTab(QWidget):
         self._process: QProcess | None = None
         self._updating_repo_id: str | None = None
         self._update_success_message = ""
+        self._provision_update = False
+        self._provision_update_succeeded = False
         self._cancel_requested = False
         self._process_output: list[str] = []
         self._external_busy = False
@@ -374,9 +377,40 @@ class RepoManagementTab(QWidget):
     def can_cancel(self) -> bool:
         return self.is_busy
 
+    @property
+    def default_repo_active(self) -> bool:
+        return any(repo.is_default and repo.active for repo in self._repos)
+
+    @property
+    def provision_update_succeeded(self) -> bool:
+        return self._provision_update_succeeded
+
+    @property
+    def can_start_provision_update(self) -> bool:
+        return not (
+            self._provision_update_succeeded or self.is_busy or self._external_busy
+        )
+
     def set_external_busy(self, busy: bool) -> None:
         self._external_busy = busy
         self._refresh_buttons()
+
+    def start_provision_update(self) -> None:
+        """Update the active default repository before provisioning starts."""
+        if not self.can_start_provision_update:
+            return
+        default = next((repo for repo in self._repos if repo.is_default), None)
+        if default is None or not default.active:
+            self.provision_update_finished.emit(
+                False,
+                "Enable the ruyisdk repository in Repo Management to load device metadata.",
+            )
+            return
+        self._provision_update = True
+        self._start_update(
+            default.id,
+            "RuyiSDK metadata repository is ready.",
+        )
 
     def reload(self) -> None:
         if self.is_busy:
@@ -740,7 +774,9 @@ class RepoManagementTab(QWidget):
         if process is not None:
             process.deleteLater()
         repo_id = self._updating_repo_id
+        provision_update = self._provision_update
         self._updating_repo_id = None
+        self._provision_update = False
         self._cancel_requested = False
         self._process_output = []
         dialog = self._update_dialog
@@ -750,8 +786,12 @@ class RepoManagementTab(QWidget):
         self._set_status(message, None if success else "error")
         if dialog is not None:
             dialog.complete(success, message)
-        if success and repo_id is not None:
+        if provision_update and success:
+            self._provision_update_succeeded = True
+        if success and repo_id is not None and not provision_update:
             self.repository_updated.emit(repo_id)
+        if provision_update:
+            self.provision_update_finished.emit(success, message)
 
     def _set_status(self, text: str, kind: str | None) -> None:
         self.status.setText(text)
