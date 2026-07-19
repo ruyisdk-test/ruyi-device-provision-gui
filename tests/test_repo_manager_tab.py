@@ -275,6 +275,50 @@ def test_provision_update_retries_after_failure_but_not_after_success(
     assert tab.provision_update_succeeded
 
 
+def test_successful_default_repo_update_satisfies_provision_update(
+    qtbot,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    tab = RepoManagementTab(config_path=tmp_path / "ruyi" / "config.toml")
+    qtbot.addWidget(tab)
+    started: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        tab,
+        "_start_update",
+        lambda repo_id, message: started.append((repo_id, message)),
+    )
+
+    tab._updating_repo_id = repo_manager.DEFAULT_REPO_ID
+    tab._finish_update(True, "Updated ruyisdk.")
+    tab.start_provision_update()
+
+    assert tab.provision_update_succeeded
+    assert started == []
+
+
+def test_default_repo_configuration_change_rearms_provision_update(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    config = tmp_path / "ruyi" / "config.toml"
+    tab = RepoManagementTab(config_path=config)
+    qtbot.addWidget(tab)
+    tab._updating_repo_id = repo_manager.DEFAULT_REPO_ID
+    tab._finish_update(True, "Updated ruyisdk.")
+    current = repo_manager.read_configured_repos(config)[0]
+
+    assert tab.provision_update_succeeded
+    assert tab._apply_mutation(
+        current.id,
+        "Disabled ruyisdk.",
+        lambda: repo_manager.set_enabled(config, current, False),
+    )
+    assert not tab.provision_update_succeeded
+
+
 def test_ruyisdk_presets_keep_declared_order_and_custom_last(qtbot) -> None:
     _app = QApplication.instance() or QApplication([])
     dialog = _RepoSourceDialog(

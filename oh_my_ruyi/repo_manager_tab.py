@@ -656,6 +656,8 @@ class RepoManagementTab(QWidget):
             return False
         if require_change and result is False:
             return False
+        if repo_id == repo_manager.DEFAULT_REPO_ID:
+            self._provision_update_succeeded = False
         self.reload()
         self.configuration_changed.emit(repo_id)
         self._set_status(success_message, None)
@@ -786,7 +788,9 @@ class RepoManagementTab(QWidget):
         self._set_status(message, None if success else "error")
         if dialog is not None:
             dialog.complete(success, message)
-        if provision_update and success:
+        if success and (
+            repo_id == repo_manager.DEFAULT_REPO_ID or provision_update
+        ):
             self._provision_update_succeeded = True
         if success and repo_id is not None and not provision_update:
             self.repository_updated.emit(repo_id)
