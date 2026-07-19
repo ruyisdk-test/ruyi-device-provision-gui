@@ -43,6 +43,9 @@ class _FakeLabel:
     def text(self) -> str:
         return self._text
 
+    def setPlaceholderText(self, _text: str) -> None:  # noqa: N802 - mirrors QLineEdit
+        pass
+
 
 def test_tables_keep_default_first_and_toml_order(qtbot, tmp_path: Path) -> None:
     _app = QApplication.instance() or QApplication([])
@@ -426,6 +429,8 @@ def test_source_only_edit_is_applied(
     class FakeDialog:
         def __init__(self, *_args, **_kwargs) -> None:
             self.help_label = _FakeLabel()
+            self.remote_edit = _FakeLabel()
+            self.branch_edit = _FakeLabel()
 
         def exec(self) -> QDialog.DialogCode:
             return QDialog.DialogCode.Accepted
@@ -442,6 +447,12 @@ def test_source_only_edit_is_applied(
             )
 
     monkeypatch.setattr(repo_manager_tab_module, "_RepoSourceDialog", FakeDialog)
+    updates: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        tab,
+        "_start_update",
+        lambda repo_id, message: updates.append((repo_id, message)),
+    )
     tab.configured_table.selectRow(1)
 
     tab._edit_selected()
@@ -450,6 +461,101 @@ def test_source_only_edit_is_applied(
     assert repo.priority == 10
     assert repo.remote == "https://mirror.test/addon.git"
     assert repo.branch == "next"
+    assert updates == []
+
+
+def test_edit_active_additional_repo_starts_update(
+    qtbot,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    config = tmp_path / "ruyi" / "config.toml"
+    preset = repo_manager.PRESET_REPOS[0]
+    repo_manager.add_repo(config, preset, preset.sources[0], 10)
+    repo = repo_manager.read_configured_repos(config)[1]
+    repo_manager.set_enabled(config, repo, True)
+    tab = RepoManagementTab(config_path=config)
+    qtbot.addWidget(tab)
+
+    class FakeDialog:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.help_label = _FakeLabel()
+            self.remote_edit = _FakeLabel()
+            self.branch_edit = _FakeLabel()
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+        def values(self):
+            return (
+                repo_manager.RepoSource(
+                    "https://mirror.test/addon.git",
+                    None,
+                    "next",
+                ),
+                20,
+                preset.name,
+            )
+
+    updates: list[tuple[str, str]] = []
+    monkeypatch.setattr(repo_manager_tab_module, "_RepoSourceDialog", FakeDialog)
+    monkeypatch.setattr(
+        tab,
+        "_start_update",
+        lambda repo_id, message: updates.append((repo_id, message)),
+    )
+    tab.configured_table.selectRow(1)
+
+    tab._edit_selected()
+
+    assert updates == [("ruyi-addons-loongson", "Updated ruyi-addons-loongson.")]
+
+
+def test_edit_active_default_repo_starts_update(
+    qtbot,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    config = tmp_path / "ruyi" / "config.toml"
+    config.parent.mkdir()
+    config.write_text('[repo]\nremote = "https://example.test/default.git"\n')
+    tab = RepoManagementTab(config_path=config)
+    qtbot.addWidget(tab)
+
+    class FakeDialog:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.help_label = _FakeLabel()
+            self.remote_edit = _FakeLabel()
+            self.branch_edit = _FakeLabel()
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+        def values(self):
+            return (
+                repo_manager.RepoSource(
+                    "https://mirror.test/default.git",
+                    None,
+                    "next",
+                ),
+                0,
+                "",
+            )
+
+    updates: list[tuple[str, str]] = []
+    monkeypatch.setattr(repo_manager_tab_module, "_RepoSourceDialog", FakeDialog)
+    monkeypatch.setattr(
+        tab,
+        "_start_update",
+        lambda repo_id, message: updates.append((repo_id, message)),
+    )
+    tab.configured_table.selectRow(0)
+
+    tab._edit_selected()
+
+    assert updates == [("ruyisdk", "Updated ruyisdk.")]
 
 
 def test_update_child_imports_ruyi_for_local_only_repo(tmp_path: Path) -> None:

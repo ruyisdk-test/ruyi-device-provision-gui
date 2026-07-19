@@ -555,12 +555,15 @@ class RepoManagementTab(QWidget):
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
             source, _priority, _name = dialog.values()
-            self._apply_mutation(
+            if not self._apply_mutation(
                 repo.id,
                 "Updated the default repository configuration.",
                 lambda: repo_manager.edit_default_repo(self._config_path, repo, source),
                 require_change=True,
-            )
+            ):
+                return
+            if repo.active:
+                self._start_update(repo.id, f"Updated {repo.id}.")
             return
 
         configured = repo.configured_source or repo_manager.RepoSource(
@@ -595,11 +598,14 @@ class RepoManagementTab(QWidget):
         assert priority is not None
         if priority == repo.priority and _source == configured:
             return
-        self._apply_mutation(
+        if not self._apply_mutation(
             repo.id,
             f"Updated {repo.id}.",
             lambda: repo_manager.edit_repo(self._config_path, repo, _source, priority),
-        )
+        ):
+            return
+        if repo.active:
+            self._start_update(repo.id, f"Updated {repo.id}.")
 
     def _remove_selected(self) -> None:
         repo = self._selected_repo()
@@ -788,9 +794,7 @@ class RepoManagementTab(QWidget):
         self._set_status(message, None if success else "error")
         if dialog is not None:
             dialog.complete(success, message)
-        if success and (
-            repo_id == repo_manager.DEFAULT_REPO_ID or provision_update
-        ):
+        if success and (repo_id == repo_manager.DEFAULT_REPO_ID or provision_update):
             self._provision_update_succeeded = True
         if success and repo_id is not None and not provision_update:
             self.repository_updated.emit(repo_id)
