@@ -1199,6 +1199,22 @@ def test_sidebar_cannot_skip_forward_steps(window: ProvisionMainWindow) -> None:
     assert window._steps.currentRow() == window.STEP_PACKAGES
 
 
+def test_device_step_is_clickable_after_returning_to_ready(
+    window: ProvisionMainWindow,
+) -> None:
+    window.state.mr = object()
+    window._set_step(window.STEP_DEVICE)
+
+    window._go_back()
+
+    device_item = window._steps.item(window.STEP_DEVICE)
+    assert device_item.flags() & Qt.ItemFlag.ItemIsEnabled
+
+    window._steps.setCurrentRow(window.STEP_DEVICE)
+
+    assert window._current_step == window.STEP_DEVICE
+
+
 @pytest.mark.parametrize(
     ("step", "widget_name"),
     [

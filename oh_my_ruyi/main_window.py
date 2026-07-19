@@ -2466,7 +2466,11 @@ class ProvisionMainWindow(QMainWindow):
             item = self._steps.item(row)
             flags = Qt.ItemFlag.ItemIsSelectable
             if row == self._current_step or (
-                (row < self._current_step or self._is_completed_flash_history_step(row))
+                (
+                    row == self._current_step + 1
+                    or row < self._current_step
+                    or self._is_completed_flash_history_step(row)
+                )
                 and self._can_open_step(row)
             ):
                 flags |= Qt.ItemFlag.ItemIsEnabled
@@ -2529,7 +2533,9 @@ class ProvisionMainWindow(QMainWindow):
         if row < 0 or row == self._current_step:
             return
         if self._is_busy() or (
-            row > self._current_step and not self._is_completed_flash_history_step(row)
+            row > self._current_step
+            and row != self._current_step + 1
+            and not self._is_completed_flash_history_step(row)
         ):
             self._steps.setCurrentRow(self._current_step)
             return
