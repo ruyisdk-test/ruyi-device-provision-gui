@@ -23,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from ruyi.config import GlobalConfig
     from ruyi.log import RuyiConsoleLogger
+    from ruyi.ruyipkg.composite_repo import CompositeRepo
     from ruyi.ruyipkg.update_cli import UpdateCommand
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
@@ -30,6 +31,13 @@ def main(argv: list[str] | None = None) -> int:
     gm = EnvGlobalModeProvider(os.environ, command_argv)
     logger = RuyiConsoleLogger(gm)
     config = GlobalConfig.load_from_config(gm, logger)
+    entries = [entry for entry in config.repo_entries if entry.id == repo_id]
+    if not entries or not entries[0].active:
+        logger.F(f"no active repo with id '{repo_id}'")
+        return 1
+    # Keep the native update command, but scope every operation in this child
+    # process to the repository selected by the GUI.
+    config.__dict__["repo"] = CompositeRepo(entries, config)
     return UpdateCommand.main(config, argparse.Namespace(repo=repo_id))
 
 

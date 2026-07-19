@@ -621,6 +621,99 @@ def test_update_child_imports_ruyi_for_local_only_repo(tmp_path: Path) -> None:
     assert "syncing repo 'local-test'" in completed.stderr
 
 
+def test_update_child_scopes_native_update_to_selected_repo(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "config" / "ruyi" / "config.toml"
+    default_repo = tmp_path / "default-repo"
+    selected_repo = tmp_path / "selected-repo"
+    default_repo.mkdir()
+    selected_repo.mkdir()
+    pygit2.init_repository(default_repo, bare=False)
+    pygit2.init_repository(selected_repo, bare=False)
+    config.parent.mkdir(parents=True)
+    config.write_text(f'[repo]\nlocal = "{default_repo}"\n')
+    preset = repo_manager.RepoPreset(
+        "selected",
+        "Selected",
+        (repo_manager.RepoSource(local=os.fspath(selected_repo)),),
+    )
+    repo_manager.add_repo(config, preset, preset.sources[0], 10)
+    repo_manager.set_enabled(
+        config,
+        repo_manager.read_configured_repos(config)[1],
+        True,
+    )
+
+    env = os.environ.copy()
+    for name in ("CACHE", "DATA", "STATE"):
+        env[f"XDG_{name}_HOME"] = os.fspath(tmp_path / name.lower())
+    env["RUYI_TELEMETRY_OPTOUT"] = "1"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "oh_my_ruyi.repo_update_child",
+            os.fspath(config),
+            "selected",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "syncing repo 'selected'" in completed.stderr
+    assert "syncing repo 'ruyisdk'" not in completed.stderr
+
+
+def test_update_child_scopes_ruyisdk_update_away_from_other_active_repo(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "config" / "ruyi" / "config.toml"
+    default_repo = tmp_path / "default-repo"
+    extra_repo = tmp_path / "extra-repo"
+    default_repo.mkdir()
+    extra_repo.mkdir()
+    pygit2.init_repository(default_repo, bare=False)
+    pygit2.init_repository(extra_repo, bare=False)
+    config.parent.mkdir(parents=True)
+    config.write_text(f'[repo]\nlocal = "{default_repo}"\n')
+    preset = repo_manager.RepoPreset(
+        "extra",
+        "Extra",
+        (repo_manager.RepoSource(local=os.fspath(extra_repo)),),
+    )
+    repo_manager.add_repo(config, preset, preset.sources[0], 10)
+    repo_manager.set_enabled(
+        config,
+        repo_manager.read_configured_repos(config)[1],
+        True,
+    )
+
+    env = os.environ.copy()
+    for name in ("CACHE", "DATA", "STATE"):
+        env[f"XDG_{name}_HOME"] = os.fspath(tmp_path / name.lower())
+    env["RUYI_TELEMETRY_OPTOUT"] = "1"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "oh_my_ruyi.repo_update_child",
+            os.fspath(config),
+            "ruyisdk",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert "syncing repo 'ruyisdk'" in completed.stderr
+    assert "syncing repo 'extra'" not in completed.stderr
+
+
 def test_news_child_reads_and_marks_unread_news(tmp_path: Path) -> None:
     config = tmp_path / "config" / "ruyi" / "config.toml"
     local_repo = tmp_path / "local-repo"
