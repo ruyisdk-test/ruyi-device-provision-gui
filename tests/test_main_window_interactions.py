@@ -1020,13 +1020,15 @@ def test_first_install_runs_selected_mode_and_telemetry_status(
     binary.parent.mkdir(parents=True)
     binary.write_text(
         "#!/bin/sh\n"
-        f"printf '%s\\n' \"$*\" >> '{log}'\n"
+        f"printf '%s|%s\\n' \"$0\" \"$*\" >> '{log}'\n"
         "read upload\n"
         "if [ \"$upload\" = 'y' ]; then printf 'on\\n'; exit 0; fi\n"
         "read optout\n"
         "if [ \"$optout\" = 'y' ]; then printf 'off\\n'; else printf 'local\\n'; fi\n"
     )
     binary.chmod(0o755)
+    window._pm_activation_link.parent.mkdir(parents=True)
+    window._pm_activation_link.symlink_to(binary)
     answers = iter(
         [
             main_window.QMessageBox.StandardButton.No,
@@ -1039,10 +1041,12 @@ def test_first_install_runs_selected_mode_and_telemetry_status(
         lambda *_args, **_kwargs: next(answers),
     )
 
-    window._maybe_start_pm_telemetry(binary)
+    window._maybe_start_pm_telemetry()
 
     qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
-    assert log.read_text().splitlines() == ["telemetry status"]
+    assert log.read_text().splitlines() == [
+        f"{window._pm_activation_link}|telemetry status"
+    ]
     assert window._pm_status.text() == "Telemetry mode: local"
 
 

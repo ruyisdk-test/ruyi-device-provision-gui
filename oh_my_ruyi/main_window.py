@@ -1675,8 +1675,7 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_status.setText(message)
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions(select_installed_version=result.state.version)
-        if result.state.target is not None:
-            self._maybe_start_pm_telemetry(result.state.target)
+        self._maybe_start_pm_telemetry()
 
     def _on_pm_delete_finished(
         self,
@@ -1731,25 +1730,21 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_first_run_check_pending = False
         self._maybe_start_pm_telemetry()
 
-    def _maybe_start_pm_telemetry(self, binary: Path | None = None) -> None:
+    def _maybe_start_pm_telemetry(self) -> None:
         if self._pm_telemetry_installation.exists() or self._pm_thread is not None:
             return
-        if binary is None:
-            state = version_manager.read_activation_state(
-                self._pm_activation_link,
-                self._pm_versions_directory,
-            )
-            if not state.managed or state.target is None:
-                return
-            binary = state.target
-        if not binary.is_file():
+        state = version_manager.read_activation_state(
+            self._pm_activation_link,
+            self._pm_versions_directory,
+        )
+        if not state.managed or not self._pm_activation_link.is_file():
             return
 
         mode = self._ask_for_pm_telemetry_mode()
         self._pm_operation = "telemetry"
         self._pm_status.setText("Saving telemetry preference and checking status...")
         self._set_status_kind(self._pm_status, None)
-        self._pm_worker = TelemetrySetupWorker(binary, mode)
+        self._pm_worker = TelemetrySetupWorker(self._pm_activation_link, mode)
         self._pm_worker.finished.connect(self._on_pm_telemetry_finished)
         self._pm_worker.failed.connect(self._on_pm_worker_failed)
         self._pm_thread = run_worker_in_thread(self._pm_worker)
