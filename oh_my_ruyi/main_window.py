@@ -752,8 +752,7 @@ class ProvisionMainWindow(QMainWindow):
         buttons.addStretch()
         self._pm_local_refresh_btn = QPushButton("Refresh")
         self._pm_delete_btn = QPushButton("Delete")
-        self._pm_activate_btn = QPushButton("Activate")
-        self._pm_deactivate_btn = QPushButton("Deactivate")
+        self._pm_toggle_activation_btn = QPushButton("Activate")
         self._pm_browse_btn = QPushButton("Browse")
         self._pm_local_refresh_btn.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
@@ -761,7 +760,6 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_local_refresh_btn.setToolTip(
             "Rescan downloaded ruyi binaries from the file system"
         )
-        self._pm_activate_btn.setObjectName("primaryButton")
         self._pm_browse_btn.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
         )
@@ -770,13 +768,13 @@ class ProvisionMainWindow(QMainWindow):
         )
         self._pm_local_refresh_btn.clicked.connect(self._refresh_pm_local_versions)
         self._pm_delete_btn.clicked.connect(self._delete_selected_pm_version)
-        self._pm_activate_btn.clicked.connect(self._activate_selected_pm_version)
-        self._pm_deactivate_btn.clicked.connect(self._deactivate_selected_pm_version)
+        self._pm_toggle_activation_btn.clicked.connect(
+            self._toggle_selected_pm_version_activation
+        )
         self._pm_browse_btn.clicked.connect(self._browse_selected_pm_version)
         buttons.addWidget(self._pm_local_refresh_btn)
         buttons.addWidget(self._pm_delete_btn)
-        buttons.addWidget(self._pm_activate_btn)
-        buttons.addWidget(self._pm_deactivate_btn)
+        buttons.addWidget(self._pm_toggle_activation_btn)
         buttons.addWidget(self._pm_browse_btn)
         buttons.addStretch()
         content.addLayout(buttons)
@@ -1361,6 +1359,19 @@ class ProvisionMainWindow(QMainWindow):
         )
         self._pm_thread = run_worker_in_thread(self._pm_worker)
         self._refresh_pm_buttons()
+
+    def _toggle_selected_pm_version_activation(self) -> None:
+        installed = self._selected_pm_installed_version()
+        if installed is None or self._pm_thread is not None:
+            return
+        active = version_manager.read_activation_state(
+            self._pm_activation_link,
+            self._pm_versions_directory,
+        )
+        if active.managed and active.target == installed.path.resolve(strict=False):
+            self._deactivate_selected_pm_version()
+        else:
+            self._activate_selected_pm_version()
 
     def _delete_selected_pm_version(self) -> None:
         installed = self._selected_pm_installed_version()
@@ -2437,13 +2448,15 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_download_btn.setEnabled(
             controls_enabled and release is not None and not release_is_installed
         )
-        self._pm_activate_btn.setEnabled(
-            controls_enabled and installed is not None and not selected_is_active
-        )
         self._pm_delete_btn.setEnabled(
             controls_enabled and installed is not None and not selected_is_active
         )
-        self._pm_deactivate_btn.setEnabled(controls_enabled and selected_is_active)
+        self._pm_toggle_activation_btn.setText(
+            "Deactivate" if selected_is_active else "Activate"
+        )
+        self._pm_toggle_activation_btn.setEnabled(
+            controls_enabled and installed is not None
+        )
         self._pm_browse_btn.setEnabled(controls_enabled and installed is not None)
 
     def _set_step(self, step: int) -> None:

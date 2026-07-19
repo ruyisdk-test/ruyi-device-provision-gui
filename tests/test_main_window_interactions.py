@@ -188,9 +188,9 @@ def test_version_tables_separate_available_and_downloaded_versions(
     assert window._pm_installed_table.item(0, 2).text() == "Activate"
     assert window._pm_installed_table.item(0, 3).text() == "64 B"
     assert window._pm_installed_table.item(0, 4).text() == "Latest"
-    assert not window._pm_activate_btn.isEnabled()
+    assert window._pm_toggle_activation_btn.isEnabled()
     assert not window._pm_delete_btn.isEnabled()
-    assert window._pm_deactivate_btn.isEnabled()
+    assert window._pm_toggle_activation_btn.text() == "Deactivate"
     assert "PATH ready" in window._pm_path_status.text()
 
 
@@ -379,9 +379,8 @@ def test_external_system_management_keeps_tables_visible_but_disables_controls(
     assert not window._pm_remove_url_btn.isEnabled()
     assert not window._pm_add_url_btn.isEnabled()
     assert not window._pm_local_refresh_btn.isEnabled()
-    assert not window._pm_activate_btn.isEnabled()
     assert not window._pm_delete_btn.isEnabled()
-    assert not window._pm_deactivate_btn.isEnabled()
+    assert not window._pm_toggle_activation_btn.isEnabled()
     assert not window._pm_browse_btn.isEnabled()
     assert (
         window._pm_path_status.text()
@@ -949,13 +948,14 @@ def test_deactivate_requires_selected_active_version(
     window._refresh_pm_versions()
 
     assert window._pm_installed_table.currentRow() == -1
-    assert not window._pm_deactivate_btn.isEnabled()
-    window._deactivate_selected_pm_version()
+    assert not window._pm_toggle_activation_btn.isEnabled()
+    window._toggle_selected_pm_version_activation()
     assert not questions
     assert window._pm_activation_link.is_symlink()
 
     window._pm_installed_table.selectRow(0)
-    assert window._pm_deactivate_btn.isEnabled()
+    assert window._pm_toggle_activation_btn.isEnabled()
+    assert window._pm_toggle_activation_btn.text() == "Deactivate"
 
 
 def test_activation_confirms_and_backs_up_unmanaged_command(
@@ -975,7 +975,7 @@ def test_activation_confirms_and_backs_up_unmanaged_command(
     )
     window._refresh_pm_versions(select_installed_version="0.50.0")
 
-    window._activate_selected_pm_version()
+    window._toggle_selected_pm_version_activation()
 
     qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
     assert window._pm_activation_link.is_symlink()
@@ -1002,13 +1002,14 @@ def test_downloaded_versions_can_switch_delete_and_deactivate(
     )
 
     window._refresh_pm_versions(select_installed_version="0.52.0-alpha.20260714")
-    assert window._pm_activate_btn.isEnabled()
+    assert window._pm_toggle_activation_btn.isEnabled()
+    assert window._pm_toggle_activation_btn.text() == "Activate"
     assert window._pm_delete_btn.isEnabled()
-    window._activate_selected_pm_version()
+    window._toggle_selected_pm_version_activation()
     qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
     assert window._pm_activation_link.resolve() == testing
 
-    window._deactivate_selected_pm_version()
+    window._toggle_selected_pm_version_activation()
     qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
     assert not os.path.lexists(window._pm_activation_link)
     assert stable.exists() and testing.exists()
