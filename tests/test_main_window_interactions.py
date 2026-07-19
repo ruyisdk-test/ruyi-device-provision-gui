@@ -64,9 +64,11 @@ def test_feature_tabs_are_in_required_order(window: ProvisionMainWindow) -> None
         "Version Management",
         "Repo Management",
         "Device Provision",
+        "About",
     ]
     assert window._tabs.currentIndex() == 0
     assert window._tabs.widget(2) is window._provision_tab
+    assert window._tabs.widget(3) is window._about_tab
     assert window._repo_manager_tab.layout() is not None
     assert window._repo_manager_tab.preset_table.rowCount() == 1
     assert window._repo_manager_tab.configured_table.rowCount() == 1

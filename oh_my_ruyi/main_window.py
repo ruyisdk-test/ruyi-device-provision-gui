@@ -62,6 +62,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import host_storage, repo_manager, ruyi_facade, version_manager
+from .about_tab import AboutTab
 from .qt_logger import LogEmitter, QtRuyiLogger
 from .repo_manager_tab import RepoManagementTab
 from .state import WizardState
@@ -426,6 +427,8 @@ class ProvisionMainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
         self._stop_fastboot_check()
+        if hasattr(self, "_about_tab"):
+            self._about_tab.stop_path_probe()
         if self._download_process is not None:
             ret = QMessageBox.question(
                 self,
@@ -556,14 +559,30 @@ class ProvisionMainWindow(QMainWindow):
         self._tabs.addTab(self._version_manager_tab, "Version Management")
         self._tabs.addTab(self._repo_manager_tab, "Repo Management")
         self._tabs.addTab(self._provision_tab, "Device Provision")
+        self._about_tab = AboutTab(
+            self.state.config,
+            activation_link=self._pm_activation_link,
+            versions_directory=self._pm_versions_directory,
+            parent=self,
+        )
+        self._tabs.addTab(self._about_tab, "About")
         self._tabs.currentChanged.connect(self._on_feature_tab_changed)
         self.setCentralWidget(self._tabs)
         self._apply_styles()
 
     def _on_feature_tab_changed(self, index: int) -> None:
-        if index != self._tabs.indexOf(self._provision_tab):
-            return
-        self._repo_manager_tab.start_provision_update()
+        if index == self._tabs.indexOf(self._provision_tab):
+            self._repo_manager_tab.start_provision_update()
+        elif index == self._tabs.indexOf(self._about_tab):
+            self._refresh_about_tab()
+
+    def _refresh_about_tab(self) -> None:
+        if self._config_loader is not None:
+            try:
+                self.state.config = self._config_loader()
+            except BaseException:  # noqa: BLE001 - keep About readable
+                pass
+        self._about_tab.refresh(self.state.config)
 
     def _on_repo_configuration_changed(self, repo_id: str) -> None:
         if self._config_loader is not None:

@@ -19,6 +19,7 @@ def test_package_imports_cleanly() -> None:
     import oh_my_ruyi  # noqa: F401
     from oh_my_ruyi import (  # noqa: F401
         app,
+        about_tab,
         host_storage,
         main_window,
         qt_logger,
@@ -109,7 +110,7 @@ def test_main_window_constructs(qtbot, tmp_path) -> None:
     assert window.windowTitle() == "Ohh My Ruyi"
     assert window._steps.count() == len(window.STEP_TITLES)
     assert window._stack.count() == len(window.STEP_TITLES)
-    assert window._tabs.count() == 3
+    assert window._tabs.count() == 4
 
 
 def test_flash_worker_adds_dd_progress_on_linux(monkeypatch) -> None:
