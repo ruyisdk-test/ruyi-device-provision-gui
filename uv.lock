@@ -415,7 +415,7 @@ wheels = [
 
 [[package]]
 name = "oh-my-ruyi"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "pyside6" },
