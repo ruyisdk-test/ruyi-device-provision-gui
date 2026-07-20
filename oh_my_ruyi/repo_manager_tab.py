@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import signal
 import sys
 from pathlib import Path
@@ -21,7 +20,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QSplitter,
     QTableWidget,
@@ -31,8 +29,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import repo_manager
+from .rich_output import RICH_TERMINAL_ENV, RichTextView, strip_terminal_controls
 
-_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _REPO_ROLE = Qt.ItemDataRole.UserRole
 
 
@@ -52,9 +50,7 @@ class _RepoUpdateDialog(QDialog):
         self._news_action_running = False
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"Running: ruyi update --repo {repo_id}"))
-        self.log = QPlainTextEdit()
-        self.log.setReadOnly(True)
-        self.log.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.log = RichTextView()
         layout.addWidget(self.log, 1)
         news_row = QHBoxLayout()
         self.read_news_button = QPushButton("Read unread news")
@@ -105,14 +101,13 @@ class _RepoUpdateDialog(QDialog):
         self._news_action_running = False
         self.cancel_button.setEnabled(True)
 
-    def append_output(self, text: str) -> None:
-        self.log.moveCursor(self.log.textCursor().MoveOperation.End)
-        self.log.insertPlainText(_ANSI_RE.sub("", text))
-        self.log.ensureCursorVisible()
+    def append_output(self, text: str, *, final: bool = False) -> None:
+        self.log.feed_text(text, final=final)
 
-    def complete(self, success: bool, message: str = "") -> None:
-        if message:
-            self.append_output(f"\n{message}\n")
+    def append_output_bytes(self, data: bytes, *, final: bool = False) -> None:
+        self.log.feed_bytes(data, final=final)
+
+    def complete(self, success: bool) -> None:
         self.cancel_button.setText("Close")
         self.cancel_button.setEnabled(True)
         self.cancel_button.clicked.disconnect()
@@ -296,7 +291,7 @@ class RepoManagementTab(QWidget):
         self._provision_update = False
         self._provision_update_succeeded = False
         self._cancel_requested = False
-        self._process_output: list[str] = []
+        self._process_output = bytearray()
         self._external_busy = False
         self._update_dialog: _RepoUpdateDialog | None = None
         self._kill_timer = QTimer(self)
@@ -469,7 +464,11 @@ class RepoManagementTab(QWidget):
             self._repos = repo_manager.read_configured_repos(self._config_path)
         except repo_manager.RepoManagerError as exc:
             self._repos = ()
-            self._set_status(f"Failed to read repository configuration: {exc}", "error")
+            self._set_status(
+                "Failed to read repository configuration.",
+                "error",
+                details=str(exc),
+            )
         else:
             self._populate_tables()
             self._set_status("Repository configuration loaded.", None)
@@ -707,7 +706,7 @@ class RepoManagementTab(QWidget):
         try:
             result = operation()
         except repo_manager.RepoManagerError as exc:
-            self._set_status(str(exc), "error")
+            self._set_status("Repository operation failed.", "error")
             QMessageBox.critical(self, "Repository operation failed", str(exc))
             return False
         if require_change and result is False:
@@ -725,7 +724,7 @@ class RepoManagementTab(QWidget):
         self._updating_repo_id = repo_id
         self._update_success_message = success_message
         self._cancel_requested = False
-        self._process_output = []
+        self._process_output.clear()
         dialog = _RepoUpdateDialog(repo_id, self)
         self._update_dialog = dialog
         dialog.cancel_requested.connect(self._cancel_process)
@@ -748,8 +747,11 @@ class RepoManagementTab(QWidget):
             ]
         )
         env = QProcessEnvironment.systemEnvironment()
+        env.remove("NO_COLOR")
         env.insert("PYTHONUNBUFFERED", "1")
         env.insert("RUYI_TELEMETRY_OPTOUT", "1")
+        for key, value in RICH_TERMINAL_ENV.items():
+            env.insert(key, value)
         process.setProcessEnvironment(env)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         process.readyReadStandardOutput.connect(self._read_process_output)
@@ -768,11 +770,10 @@ class RepoManagementTab(QWidget):
     def _read_process_output(self) -> None:
         if self._process is None:
             return
-        text = bytes(self._process.readAllStandardOutput()).decode(errors="replace")
-        plain = _ANSI_RE.sub("", text)
-        self._process_output.append(plain)
+        data = bytes(self._process.readAllStandardOutput())
+        self._process_output.extend(data)
         if self._update_dialog is not None:
-            self._update_dialog.append_output(text)
+            self._update_dialog.append_output_bytes(data)
 
     def _on_process_finished(self, process: QProcess, code: int, _status) -> None:
         if process is not self._process:
@@ -785,9 +786,13 @@ class RepoManagementTab(QWidget):
             self._finish_update(False, "Repository update cancelled.")
             return
         if code != 0:
-            output = "".join(self._process_output).strip()
+            output = strip_terminal_controls(
+                bytes(self._process_output).decode(errors="replace")
+            ).strip()
             self._finish_update(
-                False, output or f"ruyi update exited with code {code}."
+                False,
+                f"Repository update failed (exit code {code}).",
+                details=output or None,
             )
             return
         self._finish_update(True, self._update_success_message)
@@ -798,7 +803,10 @@ class RepoManagementTab(QWidget):
         if process is not self._process:
             return
         if error == QProcess.ProcessError.FailedToStart:
-            self._finish_update(False, "Failed to start the repository update process.")
+            self._finish_update(
+                False,
+                "Failed to start the repository update process.",
+            )
         # Terminating an update reports Crashed before finished. The finished
         # handler owns cancellation classification and final output collection.
 
@@ -831,7 +839,13 @@ class RepoManagementTab(QWidget):
                 pass
         process.kill()
 
-    def _finish_update(self, success: bool, message: str) -> None:
+    def _finish_update(
+        self,
+        success: bool,
+        message: str,
+        *,
+        details: str | None = None,
+    ) -> None:
         self._kill_timer.stop()
         process = self._process
         self._process = None
@@ -842,14 +856,21 @@ class RepoManagementTab(QWidget):
         self._updating_repo_id = None
         self._provision_update = False
         self._cancel_requested = False
-        self._process_output = []
+        self._process_output.clear()
         dialog = self._update_dialog
         self._update_dialog = None
         self.busy_changed.emit(False)
         self._refresh_buttons()
-        self._set_status(message, None if success else "error")
+        self._set_status(
+            message,
+            None if success else "error",
+            details=details if dialog is None else None,
+        )
         if dialog is not None:
-            dialog.complete(success, message)
+            dialog.append_output_bytes(b"", final=True)
+            if details and not dialog.log.toPlainText().strip():
+                dialog.log.append_plain_status(details)
+            dialog.complete(success)
         if success and (repo_id == repo_manager.DEFAULT_REPO_ID or provision_update):
             self._provision_update_succeeded = True
         if success and repo_id is not None and not provision_update:
@@ -872,8 +893,11 @@ class RepoManagementTab(QWidget):
             ]
         )
         env = QProcessEnvironment.systemEnvironment()
+        env.remove("NO_COLOR")
         env.insert("PYTHONUNBUFFERED", "1")
         env.insert("RUYI_TELEMETRY_OPTOUT", "1")
+        for key, value in RICH_TERMINAL_ENV.items():
+            env.insert(key, value)
         process.setProcessEnvironment(env)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         process.readyReadStandardOutput.connect(
@@ -898,8 +922,7 @@ class RepoManagementTab(QWidget):
 
     @staticmethod
     def _read_news_output(process: QProcess, dialog: _RepoUpdateDialog) -> None:
-        text = bytes(process.readAllStandardOutput()).decode(errors="replace")
-        dialog.append_output(text)
+        dialog.append_output_bytes(bytes(process.readAllStandardOutput()))
 
     def _on_news_finished(
         self,
@@ -912,6 +935,7 @@ class RepoManagementTab(QWidget):
         if process is not self._news_process:
             return
         self._read_news_output(process, dialog)
+        dialog.append_output_bytes(b"", final=True)
         self._news_process = None
         process.deleteLater()
         if code == 0:
@@ -942,8 +966,15 @@ class RepoManagementTab(QWidget):
             self.busy_changed.emit(False)
             self._refresh_buttons()
 
-    def _set_status(self, text: str, kind: str | None) -> None:
+    def _set_status(
+        self,
+        text: str,
+        kind: str | None,
+        *,
+        details: str | None = None,
+    ) -> None:
         self.status.setText(text)
+        self.status.setToolTip(details or "")
         self.status.setProperty("statusKind", kind or "")
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)
