@@ -86,6 +86,30 @@ def test_qt_logger_preserves_rich_styles_and_links(qtbot) -> None:
     assert "\x1b" not in view.toPlainText()
 
 
+def test_qt_logger_preserves_renderables_and_debug_messages(qtbot) -> None:
+    from rich.text import Text
+    from ruyi.utils.global_mode import EnvGlobalModeProvider
+
+    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
+
+    emitter = LogEmitter()
+    logger = QtRuyiLogger(
+        EnvGlobalModeProvider({"RUYI_DEBUG": "1"}, []),
+        emitter,
+    )
+    captured: list[tuple[str, str]] = []
+    terminal: list[str] = []
+    emitter.log_emitted.connect(lambda level, text: captured.append((level, text)))
+    emitter.terminal_emitted.connect(terminal.append)
+
+    logger.I(Text("linked", style="link https://example.com"))
+    logger.D("debug details")
+
+    assert ("I", "info: linked") in captured
+    assert ("D", "debug: debug details") in captured
+    assert "https://example.com" in "".join(terminal)
+
+
 def test_rich_text_view_handles_chunked_ansi_and_progress(qtbot) -> None:
     from PySide6.QtWidgets import QApplication
 

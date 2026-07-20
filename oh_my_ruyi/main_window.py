@@ -62,6 +62,7 @@ from PySide6.QtWidgets import (
 
 from . import host_storage, repo_manager, ruyi_facade, version_manager
 from .about_tab import AboutTab
+from .i18n import apply_qprocess_locale, tr, translate_widget_tree
 from .qt_logger import LogEmitter, QtRuyiLogger
 from .repo_manager_tab import RepoManagementTab
 from .rich_output import RICH_TERMINAL_ENV, RichTextView, strip_terminal_controls
@@ -83,6 +84,10 @@ from .workers import (
 FASTBOOT_PROGRAM = "fastboot"
 STORAGE_MOUNTED_ROLE = Qt.ItemDataRole.UserRole.value + 1
 STORAGE_FINGERPRINT_ROLE = Qt.ItemDataRole.UserRole.value + 2
+
+
+def _message_box(method, parent, title: str, message: str, *args):
+    return method(parent, tr(title), tr(message), *args)
 
 
 class _VersionTableItem(QTableWidgetItem):
@@ -110,7 +115,7 @@ class _VersionDownloadDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"Download ruyi {release.version}")
+        self.setWindowTitle(tr("Download ruyi {version}", version=release.version))
         self.setModal(True)
         self.setMinimumWidth(560)
         self._downloading = False
@@ -149,6 +154,7 @@ class _VersionDownloadDialog(QDialog):
         self._download_button.clicked.connect(self._request_download)
         self._buttons.rejected.connect(self.reject)
         layout.addWidget(self._buttons)
+        translate_widget_tree(self)
 
     def _request_download(self) -> None:
         url = self._url_combo.currentText()
@@ -160,11 +166,11 @@ class _VersionDownloadDialog(QDialog):
         self._cancel_button.setEnabled(True)
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
-        self._progress.setFormat("Connecting...")
+        self._progress.setFormat(tr("Connecting..."))
         self._progress.setVisible(True)
         self._output.clear()
         self._output.hide()
-        self._status.setText("Downloading the selected ruyi release...")
+        self._status.setText(tr("Downloading the selected ruyi release..."))
         self._status.setToolTip(url)
         self._set_status_kind(None)
         self.download_requested.emit(url)
@@ -175,24 +181,30 @@ class _VersionDownloadDialog(QDialog):
             self._progress.setRange(0, 100)
             self._progress.setValue(percent)
             self._progress.setFormat(
-                f"%p% ({self._format_bytes(downloaded)} / {self._format_bytes(total)})"
+                tr(
+                    "%p% ({downloaded} / {total})",
+                    downloaded=self._format_bytes(downloaded),
+                    total=self._format_bytes(total),
+                )
             )
         else:
             self._progress.setRange(0, 100)
             self._progress.setValue(0)
-            self._progress.setFormat(f"{self._format_bytes(downloaded)} downloaded")
+            self._progress.setFormat(
+                tr("{size} downloaded", size=self._format_bytes(downloaded))
+            )
 
     def show_failure(self, message: str) -> None:
         self._downloading = False
         self._cancelling = False
         self._url_combo.setEnabled(True)
-        self._download_button.setText("Retry")
+        self._download_button.setText(tr("Retry"))
         self._download_button.setEnabled(True)
         self._cancel_button.setEnabled(True)
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
-        self._progress.setFormat("Download failed")
-        self._status.setText("Download failed. See output below.")
+        self._progress.setFormat(tr("Download failed"))
+        self._status.setText(tr("Download failed. See output below."))
         self._status.setToolTip("")
         self._output.append_plain_status(message)
         self._output.show()
@@ -228,13 +240,14 @@ class _VersionDownloadDialog(QDialog):
         self._cancel_button.setEnabled(False)
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
-        self._progress.setFormat("Cancelling...")
-        self._status.setText("Stopping the download and removing temporary data...")
+        self._progress.setFormat(tr("Cancelling..."))
+        self._status.setText(tr("Stopping the download and removing temporary data..."))
         self._set_status_kind(None)
         self.cancel_requested.emit()
         super().reject()
 
     def _set_status_kind(self, kind: str | None) -> None:
+        self._status.setText(tr(self._status.text()))
         self._status.setProperty("statusKind", kind or "")
         self._status.style().unpolish(self._status)
         self._status.style().polish(self._status)
@@ -368,6 +381,7 @@ class ProvisionMainWindow(QMainWindow):
         self._storage_discovery_paths: dict[str, str] = {}
 
         self._build_ui()
+        translate_widget_tree(self)
         self._connect_logs()
         self._set_step(self.STEP_WELCOME)
         if auto_start:
@@ -378,7 +392,8 @@ class ProvisionMainWindow(QMainWindow):
         if hasattr(self, "_about_tab"):
             self._about_tab.stop_path_probe()
         if self._download_process is not None:
-            ret = QMessageBox.question(
+            ret = _message_box(
+                QMessageBox.question,
                 self,
                 "Cancel download?",
                 "A download or package installation is still running. Cancel it and close?",
@@ -394,7 +409,8 @@ class ProvisionMainWindow(QMainWindow):
             return
 
         if self._thread is not None:
-            QMessageBox.warning(
+            _message_box(
+                QMessageBox.warning,
                 self,
                 "Operation in progress",
                 "An operation is still running. Wait for it to finish before closing this window.",
@@ -403,7 +419,8 @@ class ProvisionMainWindow(QMainWindow):
             return
 
         if self._pm_thread is not None:
-            QMessageBox.warning(
+            _message_box(
+                QMessageBox.warning,
                 self,
                 "Operation in progress",
                 "A package manager version operation is still running. Wait for it to finish before closing this window.",
@@ -412,7 +429,8 @@ class ProvisionMainWindow(QMainWindow):
             return
 
         if self._repo_manager_tab.is_busy:
-            QMessageBox.warning(
+            _message_box(
+                QMessageBox.warning,
                 self,
                 "Repository operation in progress",
                 "A repository operation is still running. Cancel or finish it before "
@@ -585,20 +603,20 @@ class ProvisionMainWindow(QMainWindow):
         self._device_details.clear()
         self._device_details.hide()
         if self._repo_manager_tab.default_repo_active:
-            welcome_message = (
+            welcome_message = tr(
                 "The default repository configuration changed. Update it before "
                 "provisioning a device."
             )
-            device_message = (
+            device_message = tr(
                 "The default repository configuration changed. Update metadata to "
                 "reload devices."
             )
         else:
-            welcome_message = (
+            welcome_message = tr(
                 "The ruyisdk repository is disabled. Enable it in Repo Management "
                 "to load device metadata."
             )
-            device_message = (
+            device_message = tr(
                 "The ruyisdk repository is disabled. Enable it in Repo Management "
                 "before provisioning a device."
             )
@@ -615,11 +633,14 @@ class ProvisionMainWindow(QMainWindow):
 
     def _on_provision_repo_update_finished(self, success: bool, message: str) -> None:
         if not success:
-            disabled = message.startswith("Enable the ruyisdk repository")
+            disabled_message = tr(
+                "Enable the ruyisdk repository in Repo Management to load device metadata."
+            )
+            disabled = message == disabled_message
             self._welcome_status.setText(
                 message
                 if disabled
-                else "Repository update failed. See Repo Management output."
+                else tr("Repository update failed. See Repo Management output.")
             )
             self._welcome_status.setToolTip(message)
             self._set_status_kind(self._welcome_status, "warning")
@@ -631,7 +652,7 @@ class ProvisionMainWindow(QMainWindow):
                     self.state.config = self._config_loader()
             except BaseException as exc:  # noqa: BLE001
                 self._welcome_status.setText(
-                    "Repository updated, but configuration reload failed."
+                    tr("Repository updated, but configuration reload failed.")
                 )
                 self._welcome_status.setToolTip(str(exc))
                 self._set_status_kind(self._welcome_status, "error")
@@ -1159,6 +1180,9 @@ class ProvisionMainWindow(QMainWindow):
             QTimer.singleShot(0, self._align_pm_status_heights)
 
     def _set_status_kind(self, label: QLabel, kind: str | None) -> None:
+        label.setText(tr(label.text()))
+        if label.toolTip():
+            label.setToolTip(tr(label.toolTip()))
         if label.objectName() == "versionStatus":
             kind = "error" if kind in {"warning", "error"} else None
         label.setProperty("statusKind", kind or "")
@@ -1178,7 +1202,7 @@ class ProvisionMainWindow(QMainWindow):
             return
         self._pm_operation = "refresh"
         self._logger.set_terminal_target("pm")
-        self._pm_status.setText("Checking the latest ruyi releases...")
+        self._pm_status.setText(tr("Checking the latest ruyi releases..."))
         self._set_status_kind(self._pm_status, None)
         self._pm_worker = VersionCatalogWorker()
         self._pm_worker.finished.connect(self._on_pm_catalog_ready)
@@ -1220,7 +1244,9 @@ class ProvisionMainWindow(QMainWindow):
             return
         self._pm_operation = "download"
         self._logger.set_terminal_target("pm")
-        self._pm_status.setText(f"Downloading ruyi {release.version}...")
+        self._pm_status.setText(
+            tr("Downloading ruyi {version}...", version=release.version)
+        )
         self._set_status_kind(self._pm_status, None)
         self._pm_worker = VersionDownloadWorker(
             release,
@@ -1244,7 +1270,7 @@ class ProvisionMainWindow(QMainWindow):
         worker = self._pm_worker
         if isinstance(worker, VersionDownloadWorker):
             worker.request_cancel()
-            self._pm_status.setText("Cancelling download...")
+            self._pm_status.setText(tr("Cancelling download..."))
             self._set_status_kind(self._pm_status, None)
             self._pm_download_dialog = None
 
@@ -1265,7 +1291,10 @@ class ProvisionMainWindow(QMainWindow):
             return
         self._pm_custom_releases.remove(custom_release)
         self._pm_status.setText(
-            f"Removed transient download URL for ruyi {custom_release.version}."
+            tr(
+                "Removed transient download URL for ruyi {version}.",
+                version=custom_release.version,
+            )
         )
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions()
@@ -1275,34 +1304,41 @@ class ProvisionMainWindow(QMainWindow):
             return
         url, ok = QInputDialog.getText(
             self,
-            "Add ruyi download URL",
-            "URL ending in ruyi-<semver version>.<arch>:",
+            tr("Add ruyi download URL"),
+            tr("URL ending in ruyi-<semver version>.<arch>:"),
         )
         if not ok or not url.strip():
             return
         try:
             release = version_manager.release_from_url(url)
         except version_manager.VersionManagerError as exc:
-            QMessageBox.warning(self, "Invalid ruyi URL", str(exc))
+            _message_box(QMessageBox.warning, self, "Invalid ruyi URL", str(exc))
             return
         if not version_manager.architecture_is_compatible(release.architecture):
-            QMessageBox.warning(
+            _message_box(
+                QMessageBox.warning,
                 self,
                 "Incompatible ruyi architecture",
-                f"The URL provides a {release.architecture} binary, but this "
-                f"computer uses {version_manager.host_architecture()}.",
+                tr(
+                    "The URL provides a {architecture} binary, but this computer uses {host}.",
+                    architecture=release.architecture,
+                    host=version_manager.host_architecture(),
+                ),
             )
             return
         all_releases = [*self._pm_catalog_releases, *self._pm_custom_releases]
         if any(
             item.download_urls[0] == release.download_urls[0] for item in all_releases
         ):
-            self._pm_status.setText("That download URL is already in the table.")
+            self._pm_status.setText(tr("That download URL is already in the table."))
             self._set_status_kind(self._pm_status, "warning")
         else:
             self._pm_custom_releases.append(release)
             self._pm_status.setText(
-                f"Added transient download URL for ruyi {release.version}."
+                tr(
+                    "Added transient download URL for ruyi {version}.",
+                    version=release.version,
+                )
             )
             self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions(select_available_url=release.download_urls[0])
@@ -1320,16 +1356,21 @@ class ProvisionMainWindow(QMainWindow):
         backup_unmanaged = state.exists and not state.managed
         if backup_unmanaged:
             existing = (
-                f"a symbolic link to {state.target}"
+                tr("a symbolic link to {target}", target=state.target)
                 if state.is_symlink
-                else "an existing file"
+                else tr("an existing file")
             )
-            answer = QMessageBox.question(
+            answer = _message_box(
+                QMessageBox.question,
                 self,
                 "Replace existing ruyi command?",
-                f"{self._pm_activation_link} is {existing} and is not managed by "
-                "Oh My Ruyi.\n\nIf you continue, it will be preserved as a .bak "
-                "backup before the selected version is activated.",
+                tr(
+                    "{path} is {existing} and is not managed by Oh My Ruyi.\n\n"
+                    "If you continue, it will be preserved as a .bak backup before "
+                    "the selected version is activated.",
+                    path=self._pm_activation_link,
+                    existing=existing,
+                ),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -1338,7 +1379,9 @@ class ProvisionMainWindow(QMainWindow):
 
         self._pm_operation = "activate"
         self._logger.set_terminal_target("pm")
-        self._pm_status.setText(f"Activating ruyi {installed.version}...")
+        self._pm_status.setText(
+            tr("Activating ruyi {version}...", version=installed.version)
+        )
         self._set_status_kind(self._pm_status, None)
         self._pm_worker = VersionActivationWorker(
             binary,
@@ -1372,10 +1415,15 @@ class ProvisionMainWindow(QMainWindow):
         installed = self._selected_pm_installed_version()
         if installed is None or self._pm_thread is not None:
             return
-        answer = QMessageBox.question(
+        answer = _message_box(
+            QMessageBox.question,
             self,
             "Delete downloaded ruyi?",
-            f"Delete ruyi {installed.version} from {installed.path}?",
+            tr(
+                "Delete ruyi {version} from {path}?",
+                version=installed.version,
+                path=installed.path,
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1383,7 +1431,9 @@ class ProvisionMainWindow(QMainWindow):
             return
         self._pm_operation = "delete"
         self._logger.set_terminal_target("pm")
-        self._pm_status.setText(f"Deleting ruyi {installed.version}...")
+        self._pm_status.setText(
+            tr("Deleting ruyi {version}...", version=installed.version)
+        )
         self._set_status_kind(self._pm_status, None)
         self._pm_worker = VersionDeleteWorker(
             installed.path,
@@ -1407,11 +1457,15 @@ class ProvisionMainWindow(QMainWindow):
         )
         if not state.managed or state.target != installed.path.resolve(strict=False):
             return
-        answer = QMessageBox.question(
+        answer = _message_box(
+            QMessageBox.question,
             self,
             "Deactivate ruyi?",
-            f"Remove the managed link {self._pm_activation_link}?\n\n"
-            "Downloaded versions and existing backups will not be removed.",
+            tr(
+                "Remove the managed link {path}?\n\nDownloaded versions and existing "
+                "backups will not be removed.",
+                path=self._pm_activation_link,
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1419,7 +1473,9 @@ class ProvisionMainWindow(QMainWindow):
             return
         self._pm_operation = "deactivate"
         self._logger.set_terminal_target("pm")
-        self._pm_status.setText(f"Deactivating ruyi {state.version}...")
+        self._pm_status.setText(
+            tr("Deactivating ruyi {version}...", version=state.version)
+        )
         self._set_status_kind(self._pm_status, None)
         self._pm_worker = VersionDeactivationWorker(
             self._pm_versions_directory,
@@ -1439,10 +1495,14 @@ class ProvisionMainWindow(QMainWindow):
         if installed is None or self._pm_thread is not None:
             return
         if not self._reveal_pm_file(installed.path):
-            QMessageBox.warning(
+            _message_box(
+                QMessageBox.warning,
                 self,
                 "Could not browse downloaded ruyi",
-                f"Could not show {installed.path} in the file manager.",
+                tr(
+                    "Could not show {path} in the file manager.",
+                    path=installed.path,
+                ),
             )
 
     @staticmethod
@@ -1493,7 +1553,7 @@ class ProvisionMainWindow(QMainWindow):
             return
         assert self.state.mr is not None
         self._logger.set_terminal_target("device")
-        self._device_status.setText("Updating metadata repositories...")
+        self._device_status.setText(tr("Updating metadata repositories..."))
         self._device_list.clear()
         self._device_details.clear()
         self._device_details.show()
@@ -1510,7 +1570,7 @@ class ProvisionMainWindow(QMainWindow):
         self._download_recoverable = False
         self._download_log.clear()
         self._logger.set_terminal_target("download")
-        self._download_status.setText("Downloading and installing packages...")
+        self._download_status.setText(tr("Downloading and installing packages..."))
         self._download_status.setToolTip("")
         self._set_step(self.STEP_DOWNLOAD)
         self._download_process = QProcess(self)
@@ -1519,6 +1579,7 @@ class ProvisionMainWindow(QMainWindow):
             ["-m", "oh_my_ruyi.download_child", *self.state.pkg_atoms]
         )
         env = QProcessEnvironment.systemEnvironment()
+        apply_qprocess_locale(env)
         env.remove("NO_COLOR")
         env.insert("PYTHONUNBUFFERED", "1")
         for key, value in RICH_TERMINAL_ENV.items():
@@ -1545,7 +1606,7 @@ class ProvisionMainWindow(QMainWindow):
         self._flash_cancel_requested = False
         self._flash_log.clear()
         self._logger.set_terminal_target("flash")
-        self._flash_status.setText("Flashing the device...")
+        self._flash_status.setText(tr("Flashing the device..."))
         self._set_step(self.STEP_FLASH)
         self._worker = FlashWorker(
             self.state.config,
@@ -1581,7 +1642,7 @@ class ProvisionMainWindow(QMainWindow):
         self._logger.set_terminal_target("fastboot")
         self._fastboot_timed_out = False
         self._set_status_kind(self._fastboot_status, None)
-        self._fastboot_status.setText("Checking fastboot devices...")
+        self._fastboot_status.setText(tr("Checking fastboot devices..."))
         self._fastboot_status.setToolTip("")
         self._check_fastboot_btn.setEnabled(False)
 
@@ -1671,9 +1732,10 @@ class ProvisionMainWindow(QMainWindow):
         self._fastboot_process = None
         process.deleteLater()
         self._fastboot_ok = ok
-        self._set_status_kind(self._fastboot_status, "success" if ok else "error")
+        message = tr(message)
         self._fastboot_status.setText(message)
         self._fastboot_status.setToolTip("" if ok else message)
+        self._set_status_kind(self._fastboot_status, "success" if ok else "error")
         self._check_fastboot_btn.setEnabled(True)
         self._refresh_buttons()
 
@@ -1696,7 +1758,7 @@ class ProvisionMainWindow(QMainWindow):
         if self._download_process is None:
             return
         self._download_cancelled = True
-        self._download_status.setText("Cancelling download...")
+        self._download_status.setText(tr("Cancelling download..."))
         self._download_status.setToolTip("")
         self._terminate_download_process()
         self._refresh_buttons()
@@ -1770,7 +1832,7 @@ class ProvisionMainWindow(QMainWindow):
     def _on_pm_catalog_ready(self, catalog: version_manager.ReleaseCatalog) -> None:
         self._pm_catalog_releases = list(catalog.releases)
         self._cleanup_pm_thread()
-        self._pm_status.setText("Release information loaded.")
+        self._pm_status.setText(tr("Release information loaded."))
         self._pm_status.setToolTip(catalog.source_url)
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions()
@@ -1779,7 +1841,7 @@ class ProvisionMainWindow(QMainWindow):
     def _on_pm_download_finished(self, path: Path) -> None:
         version = path.name.removeprefix("ruyi-")
         self._cleanup_pm_thread()
-        self._pm_status.setText(f"Downloaded ruyi {version}.")
+        self._pm_status.setText(tr("Downloaded ruyi {version}.", version=version))
         self._pm_status.setToolTip(os.fspath(path))
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions(select_installed_version=version)
@@ -1790,7 +1852,7 @@ class ProvisionMainWindow(QMainWindow):
 
     def _on_pm_download_failed(self, msg: str) -> None:
         self._cleanup_pm_thread()
-        self._pm_status.setText("Download failed. See the download dialog.")
+        self._pm_status.setText(tr("Download failed. See the download dialog."))
         self._pm_status.setToolTip("")
         self._set_status_kind(self._pm_status, "error")
         self._refresh_pm_versions()
@@ -1800,7 +1862,7 @@ class ProvisionMainWindow(QMainWindow):
 
     def _on_pm_download_cancelled(self) -> None:
         self._cleanup_pm_thread()
-        self._pm_status.setText("Download cancelled.")
+        self._pm_status.setText(tr("Download cancelled."))
         self._pm_status.setToolTip("")
         self._set_status_kind(self._pm_status, None)
         self._refresh_pm_versions()
@@ -1814,7 +1876,9 @@ class ProvisionMainWindow(QMainWindow):
         result: version_manager.ActivationResult,
     ) -> None:
         self._cleanup_pm_thread()
-        self._pm_status.setText(f"Activated ruyi {result.state.version}.")
+        self._pm_status.setText(
+            tr("Activated ruyi {version}.", version=result.state.version)
+        )
         self._pm_status.setToolTip("")
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions(select_installed_version=result.state.version)
@@ -1825,7 +1889,9 @@ class ProvisionMainWindow(QMainWindow):
         installed: version_manager.InstalledVersion,
     ) -> None:
         self._cleanup_pm_thread()
-        self._pm_status.setText(f"Deleted ruyi {installed.version}.")
+        self._pm_status.setText(
+            tr("Deleted ruyi {version}.", version=installed.version)
+        )
         self._pm_status.setToolTip("")
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions()
@@ -1835,7 +1901,7 @@ class ProvisionMainWindow(QMainWindow):
         _state: version_manager.ActivationState,
     ) -> None:
         self._cleanup_pm_thread()
-        self._pm_status.setText("Deactivated the managed ruyi command.")
+        self._pm_status.setText(tr("Deactivated the managed ruyi command."))
         self._pm_status.setToolTip(os.fspath(self._pm_activation_link))
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions()
@@ -1846,7 +1912,9 @@ class ProvisionMainWindow(QMainWindow):
     ) -> None:
         self._cleanup_pm_thread()
         self._pm_error_output = ""
-        self._pm_status.setText(f"Telemetry mode: {result.status}")
+        self._pm_status.setText(
+            tr("Telemetry mode: {status}", status=tr(result.status))
+        )
         self._pm_status.setToolTip("")
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions()
@@ -1858,19 +1926,19 @@ class ProvisionMainWindow(QMainWindow):
             part for part in (self._pm_error_output.strip(), msg.strip()) if part
         )
         self._pm_error_output = ""
-        self._pm_status.setText("Operation failed. See the error dialog.")
+        self._pm_status.setText(tr("Operation failed. See the error dialog."))
         self._pm_status.setToolTip("")
         self._set_status_kind(self._pm_status, "error")
         self._refresh_pm_versions()
-        QMessageBox.critical(self, "Operation failed", details)
+        _message_box(QMessageBox.critical, self, "Operation failed", details)
         if operation == "refresh":
             self._run_pending_pm_first_run_check()
 
     def _on_pm_password_requested(self, prompt: str, response: dict) -> None:
         password, ok = QInputDialog.getText(
             self,
-            "sudo password required",
-            prompt,
+            tr("sudo password required"),
+            tr(prompt),
             QLineEdit.EchoMode.Password,
         )
         response["password"] = password if ok else None
@@ -1895,7 +1963,9 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_operation = "telemetry"
         self._logger.set_terminal_target("pm")
         self._pm_error_output = ""
-        self._pm_status.setText("Saving telemetry preference and checking status...")
+        self._pm_status.setText(
+            tr("Saving telemetry preference and checking status...")
+        )
         self._set_status_kind(self._pm_status, None)
         self._pm_worker = TelemetrySetupWorker(self._pm_activation_link, mode)
         self._pm_worker.finished.connect(self._on_pm_telemetry_finished)
@@ -1908,7 +1978,8 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_error_output += strip_terminal_controls(text)
 
     def _ask_for_pm_telemetry_mode(self) -> version_manager.TelemetryMode:
-        upload = QMessageBox.question(
+        upload = _message_box(
+            QMessageBox.question,
             self,
             "Ruyi telemetry",
             "This appears to be the first ruyi installation. RuyiSDK sends a "
@@ -1922,7 +1993,8 @@ class ProvisionMainWindow(QMainWindow):
         if upload == QMessageBox.StandardButton.Yes:
             return "consent"
 
-        opt_out = QMessageBox.question(
+        opt_out = _message_box(
+            QMessageBox.question,
             self,
             "Ruyi telemetry",
             "Do you want to opt out of telemetry collection entirely? Choose No "
@@ -1934,7 +2006,7 @@ class ProvisionMainWindow(QMainWindow):
 
     def _on_repo_ready(self, mr) -> None:
         self.state.mr = mr
-        self._welcome_status.setText("RuyiSDK metadata repository is ready.")
+        self._welcome_status.setText(tr("RuyiSDK metadata repository is ready."))
         self._set_status_kind(self._welcome_status, "success")
         self._cleanup_thread()
         self._populate_devices()
@@ -1954,7 +2026,9 @@ class ProvisionMainWindow(QMainWindow):
         )
 
     def _on_download_process_error(self, error) -> None:
-        self._download_status.setText(f"Download process error: {error.name}.")
+        self._download_status.setText(
+            tr("Download process error: {name}.", name=error.name)
+        )
         self._download_ok = False
         self._download_recoverable = True
         if (
@@ -1974,7 +2048,7 @@ class ProvisionMainWindow(QMainWindow):
             self._download_process.deleteLater()
             self._download_process = None
         if self._download_cancelled:
-            self._download_status.setText("Download cancelled.")
+            self._download_status.setText(tr("Download cancelled."))
             self._download_status.setToolTip("")
             self._download_ok = False
             self._download_recoverable = True
@@ -1984,8 +2058,8 @@ class ProvisionMainWindow(QMainWindow):
 
     def _on_download_finished(self, ret: int) -> None:
         if ret != 0:
-            self._download_status.setText("Download failed. See output.")
-            self._download_status.setToolTip(f"Exit code: {ret}")
+            self._download_status.setText(tr("Download failed. See output."))
+            self._download_status.setToolTip(tr("Exit code: {code}", code=ret))
             self._download_ok = False
             self._download_recoverable = True
             self._refresh_buttons()
@@ -1998,13 +2072,15 @@ class ProvisionMainWindow(QMainWindow):
                 self.state.pkg_atoms,
             )
         except Exception as exc:  # noqa: BLE001
-            self._download_log.append_plain_status(f"Preparing flash failed: {exc}")
-            self._download_status.setText("Preparing flash failed. See output.")
+            self._download_log.append_plain_status(
+                tr("Preparing flash failed: {error}", error=exc)
+            )
+            self._download_status.setText(tr("Preparing flash failed. See output."))
             self._download_status.setToolTip("")
             self._download_ok = False
             self._download_recoverable = True
         else:
-            self._download_status.setText("Download complete.")
+            self._download_status.setText(tr("Download complete."))
             self._download_status.setToolTip("")
             self._download_ok = True
             self._download_recoverable = False
@@ -2018,7 +2094,9 @@ class ProvisionMainWindow(QMainWindow):
         self.state.flash_ret = ret
         self._flash_recoverable = ret != 0
         self._flash_status.setText(
-            "Flash complete." if ret == 0 else f"Flash failed (exit code {ret})."
+            tr("Flash complete.")
+            if ret == 0
+            else tr("Flash failed (exit code {code}).", code=ret)
         )
         self._cleanup_thread()
         if ret == 0:
@@ -2032,27 +2110,27 @@ class ProvisionMainWindow(QMainWindow):
         self._flash_cancel_requested = False
         self.state.flash_ret = None
         self._flash_recoverable = True
-        self._flash_status.setText("Flash interrupted.")
+        self._flash_status.setText(tr("Flash interrupted."))
         self._cleanup_thread()
         self._refresh_buttons()
 
     def _on_worker_failed(self, msg: str) -> None:
-        QMessageBox.critical(self, "Operation failed", msg)
+        _message_box(QMessageBox.critical, self, "Operation failed", msg)
         if self._current_step == self.STEP_FLASH:
             self._flash_log.feed_bytes(b"", final=True)
         if self._current_step == self.STEP_DOWNLOAD:
-            self._download_status.setText("Operation failed.")
+            self._download_status.setText(tr("Operation failed."))
             self._download_status.setToolTip("")
         elif self._current_step == self.STEP_FLASH:
             self._flash_cancel_requested = False
-            self._flash_status.setText("Operation failed.")
+            self._flash_status.setText(tr("Operation failed."))
             self._flash_status.setToolTip("")
             self._flash_recoverable = True
         elif self._current_step == self.STEP_DEVICE:
-            self._device_status.setText("Metadata operation failed.")
+            self._device_status.setText(tr("Metadata operation failed."))
             self._device_status.setToolTip("")
         else:
-            self._welcome_status.setText("Repository operation failed.")
+            self._welcome_status.setText(tr("Repository operation failed."))
             self._welcome_status.setToolTip("")
         self._cleanup_thread()
         self._refresh_buttons()
@@ -2060,7 +2138,8 @@ class ProvisionMainWindow(QMainWindow):
     def _on_flash_yes_no_requested(
         self, prompt: str, default: bool, response: dict
     ) -> None:
-        ret = QMessageBox.question(
+        ret = _message_box(
+            QMessageBox.question,
             self,
             "Flashing needs confirmation",
             prompt,
@@ -2074,8 +2153,8 @@ class ProvisionMainWindow(QMainWindow):
     def _on_flash_password_requested(self, prompt: str, response: dict) -> None:
         password, ok = QInputDialog.getText(
             self,
-            "sudo password required",
-            prompt,
+            tr("sudo password required"),
+            tr(prompt),
             QLineEdit.EchoMode.Password,
         )
         response["password"] = password if ok else None
@@ -2178,7 +2257,12 @@ class ProvisionMainWindow(QMainWindow):
             )
             self._pm_status.setToolTip("")
             self._set_status_kind(self._pm_status, "error")
-            QMessageBox.critical(self, "Version inspection failed", str(exc))
+            _message_box(
+                QMessageBox.critical,
+                self,
+                "Version inspection failed",
+                str(exc),
+            )
             installed = ()
             active = version_manager.ActivationState(
                 self._pm_activation_link,
@@ -2258,7 +2342,7 @@ class ProvisionMainWindow(QMainWindow):
             version_item = _VersionTableItem(release.version)
             version_item.setData(Qt.ItemDataRole.UserRole, release)
             table.setItem(row, 0, version_item)
-            table.setItem(row, 1, QTableWidgetItem(release.channel))
+            table.setItem(row, 1, QTableWidgetItem(tr(release.channel)))
             architecture = (
                 version_manager.normalize_architecture(release.architecture)
                 or release.architecture
@@ -2310,8 +2394,8 @@ class ProvisionMainWindow(QMainWindow):
                 and version_manager.version_sort_key(item.version)
                 == version_manager.version_sort_key(latest_version)
             )
-            table.setItem(row, 1, QTableWidgetItem(item.channel))
-            activate_item = QTableWidgetItem("Activate" if is_active else "")
+            table.setItem(row, 1, QTableWidgetItem(tr(item.channel)))
+            activate_item = QTableWidgetItem(tr("Activate") if is_active else "")
             if is_active and active_is_latest is False:
                 activate_item.setForeground(self._pm_foreground("error"))
             table.setItem(row, 2, activate_item)
@@ -2319,7 +2403,9 @@ class ProvisionMainWindow(QMainWindow):
             table.setItem(
                 row,
                 4,
-                QTableWidgetItem("Latest" if item.version in latest_versions else ""),
+                QTableWidgetItem(
+                    tr("Latest") if item.version in latest_versions else ""
+                ),
             )
             if is_latest and not is_active:
                 self._set_pm_row_foreground(table, row, "success")
@@ -2379,8 +2465,10 @@ class ProvisionMainWindow(QMainWindow):
     ) -> None:
         if self._pm_externally_managed:
             self._pm_path_status.setText(
-                "Version management issue: this system's ruyi package manager is "
-                "configured to have its version managed by the system package manager."
+                tr(
+                    "Version management issue: this system's ruyi package manager is "
+                    "configured to have its version managed by the system package manager."
+                )
             )
             self._set_status_kind(self._pm_path_status, "error")
             return
@@ -2390,26 +2478,39 @@ class ProvisionMainWindow(QMainWindow):
         )
         if path_state.correct:
             self._pm_path_status.setText(
-                "PATH ready: ruyi resolves to the managed command at "
-                f"{self._pm_activation_link}."
+                tr(
+                    "PATH ready: ruyi resolves to the managed command at {path}.",
+                    path=self._pm_activation_link,
+                )
             )
             self._set_status_kind(self._pm_path_status, None)
         elif path_state.command is None:
-            message = "PATH issue: no executable named ruyi was found."
             if active.managed:
-                message += f" Add {self._pm_activation_link.parent} to PATH."
+                message = tr(
+                    "PATH issue: no executable named ruyi was found. Add {path} to PATH.",
+                    path=self._pm_activation_link.parent,
+                )
+            else:
+                message = tr("PATH issue: no executable named ruyi was found.")
             self._pm_path_status.setText(message)
             self._set_status_kind(self._pm_path_status, "error")
         elif active.managed:
             self._pm_path_status.setText(
-                f"PATH issue: ruyi resolves first to {path_state.command}, which is "
-                f"ahead of the managed command at {self._pm_activation_link}."
+                tr(
+                    "PATH issue: ruyi resolves first to {command}, which is ahead of "
+                    "the managed command at {path}.",
+                    command=path_state.command,
+                    path=self._pm_activation_link,
+                )
             )
             self._set_status_kind(self._pm_path_status, "error")
         else:
             self._pm_path_status.setText(
-                f"PATH issue: ruyi resolves to {path_state.command}, but no Oh My "
-                "Ruyi-managed version is active."
+                tr(
+                    "PATH issue: ruyi resolves to {command}, but no Oh My Ruyi-managed "
+                    "version is active.",
+                    command=path_state.command,
+                )
             )
             self._set_status_kind(self._pm_path_status, "error")
 
@@ -2471,7 +2572,7 @@ class ProvisionMainWindow(QMainWindow):
             controls_enabled and installed is not None and not selected_is_active
         )
         self._pm_toggle_activation_btn.setText(
-            "Deactivate" if selected_is_active else "Activate"
+            tr("Deactivate" if selected_is_active else "Activate")
         )
         self._pm_toggle_activation_btn.setEnabled(
             controls_enabled and installed is not None
@@ -2631,23 +2732,32 @@ class ProvisionMainWindow(QMainWindow):
 
     def _refresh_summary(self) -> None:
         self._summary_device.setText(
-            f"Device: {self.state.device.display_name if self.state.device else '-'}"
+            tr(
+                "Device: {value}",
+                value=self.state.device.display_name if self.state.device else "-",
+            )
         )
         self._summary_variant.setText(
-            f"Variant: {self.state.variant.display_name if self.state.variant else '-'}"
+            tr(
+                "Variant: {value}",
+                value=self.state.variant.display_name if self.state.variant else "-",
+            )
         )
         self._summary_combo.setText(
-            f"Image: {self.state.combo.display_name if self.state.combo else '-'}"
+            tr(
+                "Image: {value}",
+                value=self.state.combo.display_name if self.state.combo else "-",
+            )
         )
         pkgs = ", ".join(self.state.pkg_atoms) if self.state.pkg_atoms else "-"
-        self._summary_packages.setText(f"Packages: {pkgs}")
+        self._summary_packages.setText(tr("Packages: {value}", value=pkgs))
         if self.state.host_blkdev_map:
             storage = ", ".join(
                 f"{k}: {v}" for k, v in self.state.host_blkdev_map.items()
             )
         else:
             storage = "-"
-        self._summary_storage.setText(f"Storage: {storage}")
+        self._summary_storage.setText(tr("Storage: {value}", value=storage))
 
     def _refresh_buttons(self) -> None:
         repo_tab = getattr(self, "_repo_manager_tab", None)
@@ -2666,11 +2776,11 @@ class ProvisionMainWindow(QMainWindow):
         )
         self._next_btn.setEnabled(not busy and self._can_go_next())
         if self._current_step == self.STEP_DONE:
-            self._next_btn.setText("Close")
+            self._next_btn.setText(tr("Close"))
         elif self._current_step == self.STEP_PACKAGES:
-            self._next_btn.setText("Proceed")
+            self._next_btn.setText(tr("Proceed"))
         else:
-            self._next_btn.setText("Next")
+            self._next_btn.setText(tr("Next"))
         self._update_repo_btn.setEnabled(not busy and self.state.mr is not None)
         self._cancel_download_btn.setVisible(
             self._current_step == self.STEP_DOWNLOAD
@@ -2685,7 +2795,7 @@ class ProvisionMainWindow(QMainWindow):
         self._resume_download_btn.setEnabled(bool(self.state.pkg_atoms))
         self._reselect_versions_btn.setEnabled(self.state.combo is not None)
         self._reselect_versions_btn.setText(
-            "Reselect versions" if self._versions_visited else "Reselect packages"
+            tr("Reselect versions" if self._versions_visited else "Reselect packages")
         )
         self._restart_btn.setEnabled(self.state.mr is not None)
         self._refresh_storage_btn.setEnabled(
@@ -2717,7 +2827,7 @@ class ProvisionMainWindow(QMainWindow):
         if not isinstance(worker, FlashWorker) or self._flash_cancel_requested:
             return
         self._flash_cancel_requested = True
-        self._flash_status.setText("Interrupting flash...")
+        self._flash_status.setText(tr("Interrupting flash..."))
         worker.request_cancel()
         self._refresh_buttons()
 
@@ -2890,15 +3000,16 @@ class ProvisionMainWindow(QMainWindow):
             self._device_list.addItem(item)
         if not devices:
             entity_types = ruyi_facade.list_entity_types(self.state.mr)
-            types_text = ", ".join(entity_types) if entity_types else "(none)"
+            types_text = ", ".join(entity_types) if entity_types else tr("(none)")
             repo_entries = []
             for entry in self.state.config.repo_entries:
                 if entry.id != ruyi_facade.PROVISION_REPO_ID:
                     continue
-                source = entry.local_path or entry.remote or "(no source)"
+                source = entry.local_path or entry.remote or tr("(no source)")
                 repo_entries.append(f"{entry.id}: {source}")
             repos_text = (
-                "\n".join(f" * {entry}" for entry in repo_entries) or " * (none)"
+                "\n".join(f" * {entry}" for entry in repo_entries)
+                or f" * {tr('(none)')}"
             )
 
             workspace_ruyinews = (
@@ -2909,30 +3020,31 @@ class ProvisionMainWindow(QMainWindow):
             )
             local_hint = ""
             if (workspace_ruyinews / "entities" / "device").is_dir():
-                local_hint = (
+                local_hint = tr(
                     "\n\nA local metadata tree with device data was detected at:\n"
-                    f"{workspace_ruyinews}\n\n"
-                    "To make the CLI and GUI use it, configure ruyi's repo.local "
-                    "to this absolute path."
+                    "{path}\n\nTo make the CLI and GUI use it, configure ruyi's "
+                    "repo.local to this absolute path.",
+                    path=workspace_ruyinews,
                 )
-            details = (
+            details = tr(
                 "The current ruyi metadata repository does not contain device "
                 "provisioning entities (`device`, `device-variant`, `image-combo`). "
                 "This GUI follows `ruyi device provision`, so it cannot continue "
                 "without those entities.\n\n"
-                f"Available entity types: {types_text}.\n\n"
-                "Configured repositories:\n"
-                f"{repos_text}"
-                f"{local_hint}"
+                "Available entity types: {types}.\n\nConfigured repositories:\n"
+                "{repositories}{local_hint}",
+                types=types_text,
+                repositories=repos_text,
+                local_hint=local_hint,
             )
             self._device_status.setText(
-                "No device provisioning data is available. See repository details."
+                tr("No device provisioning data is available. See repository details.")
             )
             self._device_status.setToolTip("")
             self._device_details.append_plain_status(details)
             self._device_details.show()
             item = QListWidgetItem(
-                "No device provisioning data is available in this repository."
+                tr("No device provisioning data is available in this repository.")
             )
             item.setFlags(Qt.ItemFlag.NoItemFlags)
             self._device_list.addItem(item)
@@ -2995,19 +3107,29 @@ class ProvisionMainWindow(QMainWindow):
             self.state.pkg_atoms,
         )
         self._versions_status.setText(
-            "This mirrors the TUI's package version customization step. "
-            "Leave the default selection to install the latest version."
+            tr(
+                "This mirrors the TUI's package version customization step. "
+                "Leave the default selection to install the latest version."
+            )
         )
         for sel in selections:
             label = QLabel(sel.package_name)
             combo = QComboBox()
-            combo.setAccessibleName(f"Version for {sel.package_name}")
+            combo.setAccessibleName(
+                tr("Version for {package}", package=sel.package_name)
+            )
             label.setBuddy(combo)
             for option in sel.options:
                 combo.addItem(option.display_name, option.atom)
             combo.setEnabled(sel.locked_reason is None and len(sel.options) > 1)
             if sel.locked_reason:
-                label.setText(f"{sel.package_name} ({sel.locked_reason})")
+                label.setText(
+                    tr(
+                        "{package} ({reason})",
+                        package=sel.package_name,
+                        reason=sel.locked_reason,
+                    )
+                )
             row = QHBoxLayout()
             row.addWidget(label, 2)
             row.addWidget(combo, 3)
@@ -3032,7 +3154,9 @@ class ProvisionMainWindow(QMainWindow):
                 self._packages_list.addItem(atom)
         else:
             self._packages_list.addItem(
-                "No packages. The selected image only contains a post-install message."
+                tr(
+                    "No packages. The selected image only contains a post-install message."
+                )
             )
 
     def _populate_storage(
@@ -3061,7 +3185,9 @@ class ProvisionMainWindow(QMainWindow):
             label = QLabel(f"{desc} ({part})")
             edit = QComboBox()
             edit.setEditable(True)
-            edit.setAccessibleName(f"Target disk for {desc}")
+            edit.setAccessibleName(
+                tr("Target disk for {description}", description=desc)
+            )
             label.setBuddy(edit)
             edit.lineEdit().setPlaceholderText("/dev/...")
             for disk in disks:
@@ -3073,10 +3199,12 @@ class ProvisionMainWindow(QMainWindow):
                     disk.fingerprint,
                     STORAGE_FINGERPRINT_ROLE,
                 )
-            warning = QLabel("The selected disk or one of its partitions is mounted.")
+            warning = QLabel(
+                tr("The selected disk or one of its partitions is mounted.")
+            )
             warning.setProperty("statusKind", "error")
             warning.setVisible(False)
-            confirm = QCheckBox("I understand flashing may overwrite mounted data.")
+            confirm = QCheckBox(tr("I understand flashing may overwrite mounted data."))
             confirm.setVisible(False)
             confirm.toggled.connect(self._refresh_buttons)
             edit.currentTextChanged.connect(
@@ -3088,8 +3216,12 @@ class ProvisionMainWindow(QMainWindow):
             browse.setIcon(
                 self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
             )
-            browse.setToolTip(f"Choose target disk or image file for {desc}")
-            browse.setAccessibleName(f"Choose target disk or image file for {desc}")
+            browse_text = tr(
+                "Choose target disk or image file for {description}",
+                description=desc,
+            )
+            browse.setToolTip(browse_text)
+            browse.setAccessibleName(browse_text)
             browse.clicked.connect(lambda _=False, e=edit: self._browse_storage(e))
             row = QHBoxLayout()
             row.addWidget(label, 2)
@@ -3137,7 +3269,7 @@ class ProvisionMainWindow(QMainWindow):
     ) -> None:
         self._storage_discovery_paths = dict(selected_paths or {})
         self._storage_box.setEnabled(False)
-        self._storage_error.setText("Detecting disks...")
+        self._storage_error.setText(tr("Detecting disks..."))
         self._worker = StorageDiscoveryWorker()
         self._worker.finished.connect(self._on_storage_disks_ready)
         self._worker.failed.connect(self._on_storage_discovery_failed)
@@ -3156,19 +3288,22 @@ class ProvisionMainWindow(QMainWindow):
         self._cleanup_thread()
         self._storage_box.setEnabled(True)
         self._storage_error.setText(
-            f"Automatic disk detection failed: {message}. Use the file chooser to select a target."
+            tr(
+                "Automatic disk detection failed: {message}. Use the file chooser to select a target.",
+                message=message,
+            )
         )
         self._refresh_buttons()
 
     def _browse_storage(self, edit: QComboBox) -> None:
         dialog = QFileDialog(
             self,
-            "Select disk or image file",
+            tr("Select disk or image file"),
             host_storage.DEFAULT_DEVICE_ROOT,
         )
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
         dialog.setFileMode(QFileDialog.FileMode.AnyFile)
-        dialog.setNameFilter("All entries (*)")
+        dialog.setNameFilter(tr("All entries (*)"))
         dialog.setFilter(
             QDir.Filter.AllEntries
             | QDir.Filter.System
@@ -3260,14 +3395,17 @@ class ProvisionMainWindow(QMainWindow):
         for part, edit in self._storage_inputs.items():
             path = self._storage_path(edit)
             if not os.path.exists(path):
-                self._storage_error.setText(f"'{path}' does not exist.")
+                self._storage_error.setText(tr("'{path}' does not exist.", path=path))
                 return False
             if (
                 self._storage_mount_warnings[part].isVisible()
                 and not self._storage_mount_confirmations[part].isChecked()
             ):
                 self._storage_error.setText(
-                    f"'{path}' is mounted. Confirm the mounted-device warning before continuing."
+                    tr(
+                        "'{path}' is mounted. Confirm the mounted-device warning before continuing.",
+                        path=path,
+                    )
                 )
                 return False
             fingerprint_data = self._storage_item_data(
@@ -3281,7 +3419,10 @@ class ProvisionMainWindow(QMainWindow):
             )
             if fingerprint is None:
                 self._storage_error.setText(
-                    f"Could not verify the identity of '{path}'. Select the target again."
+                    tr(
+                        "Could not verify the identity of '{path}'. Select the target again.",
+                        path=path,
+                    )
                 )
                 return False
             host_blkdev_map[part] = path
@@ -3293,16 +3434,20 @@ class ProvisionMainWindow(QMainWindow):
 
     def _flash_storage_error(self) -> str | None:
         if self.state.prepared is None:
-            return "Flash preparation is incomplete."
+            return tr("Flash preparation is incomplete.")
         for part in self.state.prepared.requested_host_blkdevs:
             path = self.state.host_blkdev_map.get(part, "").strip()
             if not path or not os.path.exists(path):
-                return f"The selected target for {part} is no longer available. Select it again."
+                return tr(
+                    "The selected target for {part} is no longer available. Select it again.",
+                    part=part,
+                )
             expected_fingerprint = self.state.host_blkdev_fingerprints.get(part)
             if host_storage.validation_is_slow():
                 if expected_fingerprint is None:
-                    return (
-                        f"The identity of '{path}' was not recorded. Select it again."
+                    return tr(
+                        "The identity of '{path}' was not recorded. Select it again.",
+                        path=path,
                     )
                 continue
             current_fingerprint = host_storage.device_fingerprint(path)
@@ -3311,17 +3456,18 @@ class ProvisionMainWindow(QMainWindow):
                 or current_fingerprint is None
                 or current_fingerprint != expected_fingerprint
             ):
-                return (
-                    f"The device at '{path}' has changed since review. "
-                    "Select and confirm the target again."
+                return tr(
+                    "The device at '{path}' has changed since review. Select and confirm the target again.",
+                    path=path,
                 )
             confirmation = self._storage_mount_confirmations.get(part)
             if host_storage.is_disk_or_child_mounted(path) and (
                 confirmation is None or not confirmation.isChecked()
             ):
-                return (
-                    f"'{path}' is now mounted. Review the target and confirm the "
-                    "mounted-device warning before flashing."
+                return tr(
+                    "'{path}' is now mounted. Review the target and confirm the "
+                    "mounted-device warning before flashing.",
+                    path=path,
                 )
         return None
 
@@ -3333,14 +3479,16 @@ class ProvisionMainWindow(QMainWindow):
         self._review_steps.setPlainText("\n".join(f" * {s}" for s in steps))
         missing = ruyi_facade.missing_cmds(self.state.prepared)
         self._review_missing.setText(
-            "Missing required commands: " + ", ".join(missing) + "." if missing else ""
+            tr("Missing required commands: {commands}.", commands=", ".join(missing))
+            if missing
+            else ""
         )
         needs_fastboot = ruyi_facade.needs_fastboot_confirmation(self.state.prepared)
         self._fastboot_ok = not needs_fastboot
         self._fastboot_status.setVisible(needs_fastboot)
         self._check_fastboot_btn.setVisible(needs_fastboot)
         if needs_fastboot:
-            self._fastboot_status.setText("Checking fastboot devices...")
+            self._fastboot_status.setText(tr("Checking fastboot devices..."))
             self._set_status_kind(self._fastboot_status, None)
             self._check_fastboot_devices()
         else:
@@ -3361,17 +3509,20 @@ class ProvisionMainWindow(QMainWindow):
     def _populate_done(self) -> None:
         if self.state.flash_ret is None and not self.state.pkg_atoms:
             self._done_label.setText(
-                "No flashing was required. See the message below for next steps."
+                tr("No flashing was required. See the message below for next steps.")
             )
             self._set_status_kind(self._done_label, "success")
         elif self.state.flash_ret == 0:
             self._done_label.setText(
-                "It seems the flashing has finished without errors. Happy hacking!"
+                tr("It seems the flashing has finished without errors. Happy hacking!")
             )
             self._set_status_kind(self._done_label, "success")
         else:
             self._done_label.setText(
-                f"Flashing failed (exit code {self.state.flash_ret}). Check the device right now."
+                tr(
+                    "Flashing failed (exit code {code}). Check the device right now.",
+                    code=self.state.flash_ret,
+                )
             )
             self._set_status_kind(self._done_label, "error")
 

@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import sys
 
+from .i18n import initialize, localize_config
+
 from ruyi.config import GlobalConfig
 from ruyi.log import RuyiConsoleLogger
 from ruyi.utils.global_mode import EnvGlobalModeProvider
@@ -24,9 +26,10 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(os, "setpgrp"):
         os.setpgrp()
 
+    initialize()
     gm = EnvGlobalModeProvider(os.environ, list(sys.argv))
     logger = RuyiConsoleLogger(gm)
-    config = GlobalConfig.load_from_config(gm, logger)
+    config = localize_config(GlobalConfig.load_from_config(gm, logger))
     mr = ruyi_facade.ensure_repo(config)
     return ruyi_facade.run_download(config, mr, argv)
 

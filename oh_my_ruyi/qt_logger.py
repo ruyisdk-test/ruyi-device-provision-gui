@@ -21,6 +21,7 @@ from typing import Any
 from PySide6.QtCore import QObject, Signal
 
 from ruyi.log import RuyiLogger
+from ruyi.i18n import _ as ruyi_tr
 from ruyi.utils.global_mode import ProvidesGlobalMode
 
 from .rich_output import strip_terminal_controls
@@ -78,10 +79,10 @@ class LogEmitter(QObject):
 
 
 _LEVEL_PREFIXES: dict[str, str] = {
-    "F": "[bold red]fatal error:[/] ",
-    "I": "[bold green]info:[/] ",
-    "W": "[bold yellow]warn:[/] ",
-    "D": "[dim]debug:[/] ",
+    "F": "[bold red]fatal error:[/] {message}",
+    "I": "[bold green]info:[/] {message}",
+    "W": "[bold yellow]warn:[/] {message}",
+    "D": "[dim]debug:[/] {message}",
     "stdout": "",
 }
 
@@ -187,10 +188,20 @@ class QtRuyiLogger(RuyiLogger):
         prefix = _LEVEL_PREFIXES.get(level, "")
         self._stream.begin_capture()
         try:
-            if prefix and isinstance(message, str):
-                self._console.print(f"{prefix}{message}", *objects, sep=sep, end=end)
-            elif prefix:
-                self._console.print(prefix, message, *objects, sep="", end=end)
+            if prefix:
+                before, marker, after = ruyi_tr(prefix).partition("{message}")
+                if marker:
+                    self._console.print(before, end="")
+                    self._console.print(message, end="")
+                    self._console.print(after, end="")
+                    for obj in objects:
+                        self._stream.write(sep)
+                        self._console.print(obj, end="")
+                    self._stream.write(end)
+                else:
+                    self._console.print(
+                        ruyi_tr(prefix), message, *objects, sep=sep, end=end
+                    )
             else:
                 self._console.print(message, *objects, sep=sep, end=end)
         finally:

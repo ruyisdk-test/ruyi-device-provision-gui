@@ -6,6 +6,8 @@ import os
 import sys
 from typing import Callable, Optional
 
+from .i18n import initialize, install_qt_translations, localize_config
+
 from PySide6.QtWidgets import QApplication
 
 from ruyi.config import GlobalConfig
@@ -32,11 +34,17 @@ def _build_config_with_loader() -> tuple[
     Callable[[], GlobalConfig],
 ]:
     """Construct the ruyi ``GlobalConfig`` wired to a :class:`QtRuyiLogger`."""
+    initialize()
     gm = _make_global_mode()
     emitter = LogEmitter()
     logger = QtRuyiLogger(gm, emitter)
-    config = GlobalConfig.load_from_config(gm, logger)
-    return config, logger, emitter, lambda: GlobalConfig.load_from_config(gm, logger)
+    config = localize_config(GlobalConfig.load_from_config(gm, logger))
+    return (
+        config,
+        logger,
+        emitter,
+        lambda: localize_config(GlobalConfig.load_from_config(gm, logger)),
+    )
 
 
 def build_config() -> tuple[GlobalConfig, QtRuyiLogger, LogEmitter]:
@@ -51,6 +59,7 @@ def run(argv: Optional[list[str]] = None) -> int:
         argv = sys.argv
     app = QApplication(argv)
     app.setApplicationName("oh-my-ruyi")
+    install_qt_translations(app)
 
     config, _logger, emitter, config_loader = _build_config_with_loader()
     window = ProvisionMainWindow(

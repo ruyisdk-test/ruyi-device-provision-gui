@@ -19,6 +19,10 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(os, "setpgrp"):
         os.setpgrp()
 
+    from .i18n import initialize, localize_config, tr
+
+    initialize()
+
     import argparse
 
     from ruyi.config import GlobalConfig
@@ -30,10 +34,10 @@ def main(argv: list[str] | None = None) -> int:
     command_argv = ["ruyi", "update", "--repo", repo_id]
     gm = EnvGlobalModeProvider(os.environ, command_argv)
     logger = RuyiConsoleLogger(gm)
-    config = GlobalConfig.load_from_config(gm, logger)
+    config = localize_config(GlobalConfig.load_from_config(gm, logger))
     entries = [entry for entry in config.repo_entries if entry.id == repo_id]
     if not entries or not entries[0].active:
-        logger.F(f"no active repo with id '{repo_id}'")
+        logger.F(tr("no active repo with id '{repo_id}'", repo_id=repo_id))
         return 1
     # Keep the native update command, but scope every operation in this child
     # process to the repository selected by the GUI.

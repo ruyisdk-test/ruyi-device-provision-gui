@@ -19,6 +19,10 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(os, "setpgrp"):
         os.setpgrp()
 
+    from .i18n import initialize, localize_config
+
+    initialize()
+
     from ruyi.config import GlobalConfig
     from ruyi.log import RuyiConsoleLogger
     from ruyi.ruyipkg.news import do_news_read
@@ -27,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     command_argv = ["ruyi", "news", "read"]
     gm = EnvGlobalModeProvider(os.environ, command_argv)
     logger = RuyiConsoleLogger(gm)
-    config = GlobalConfig.load_from_config(gm, logger)
+    config = localize_config(GlobalConfig.load_from_config(gm, logger))
     return do_news_read(config, quiet=action == "mark", items_strs=[])
 
 

@@ -34,6 +34,7 @@ from ruyi.ruyipkg.composite_repo import CompositeRepo
 from ruyi.ruyipkg.pkg_manifest import PartitionKind, PartitionMapDecl
 
 from . import host_storage, ruyi_facade, version_manager
+from .i18n import tr
 from .ruyi_facade import PreparedProvision
 
 
@@ -51,7 +52,7 @@ class _BaseWorker(QObject):
     failed = Signal(str)  # error message
 
     def _fail(self, exc: BaseException) -> None:
-        msg = f"{type(exc).__name__}: {exc}"
+        msg = f"{type(exc).__name__}: {tr(str(exc))}"
         self.failed.emit(msg)
 
 
@@ -218,7 +219,10 @@ class VersionActivationWorker(_BaseWorker):
 
         response: dict[str, str | None] = {"password": None}
         self.password_requested.emit(
-            f"sudo password is required to update {self._link}.",
+            tr(
+                "sudo password is required to update {path}.",
+                path=self._link,
+            ),
             response,
         )
         password = response["password"]
@@ -313,7 +317,10 @@ class VersionDeactivationWorker(_BaseWorker):
     def _deactivate_with_sudo(self) -> version_manager.ActivationState:
         response: dict[str, str | None] = {"password": None}
         self.password_requested.emit(
-            f"sudo password is required to update {self._link}.",
+            tr(
+                "sudo password is required to update {path}.",
+                path=self._link,
+            ),
             response,
         )
         password = response["password"]
@@ -461,11 +468,13 @@ class FlashWorker(_BaseWorker):
         if argv and argv[0] == "sudo":
             response: dict[str, str | None] = {"password": None}
             self.password_requested.emit(
-                "sudo password is required for flashing.", response
+                tr("sudo password is required for flashing."), response
             )
             password = response["password"]
             if password is None:
-                self.process_output.emit(b"sudo password prompt was cancelled.\n")
+                self.process_output.emit(
+                    (tr("sudo password prompt was cancelled.") + "\n").encode()
+                )
                 return 1
             if self._cancel_requested.is_set():
                 return 130

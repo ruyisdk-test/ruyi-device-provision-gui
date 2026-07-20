@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Callable, Literal
 
+from .i18n import locale_environment
+
 PRIMARY_RELEASES_URL = "https://api.ruyisdk.cn/releases/latest-pm"
 FALLBACK_RELEASES_URL = (
     "https://ruyisdk.org/data/api/api_ruyisdk_cn/releases_latest_pm.json"
@@ -782,6 +784,7 @@ def _run_interactive_telemetry_status(
     process: subprocess.Popen[bytes] | None = None
     chunks: list[bytes] = []
     env = os.environ.copy()
+    env.update(locale_environment())
     env.pop("NO_COLOR", None)
     env.update(
         {
