@@ -34,7 +34,7 @@ from ruyi.ruyipkg.composite_repo import CompositeRepo
 from ruyi.ruyipkg.pkg_manifest import PartitionKind, PartitionMapDecl
 
 from . import host_storage, ruyi_facade, version_manager
-from .i18n import tr
+from .i18n import _
 from .ruyi_facade import PreparedProvision
 
 
@@ -52,7 +52,7 @@ class _BaseWorker(QObject):
     failed = Signal(str)  # error message
 
     def _fail(self, exc: BaseException) -> None:
-        msg = f"{type(exc).__name__}: {tr(str(exc))}"
+        msg = f"{type(exc).__name__}: {_(str(exc))}"
         self.failed.emit(msg)
 
 
@@ -219,7 +219,7 @@ class VersionActivationWorker(_BaseWorker):
 
         response: dict[str, str | None] = {"password": None}
         self.password_requested.emit(
-            tr(
+            _(
                 "sudo password is required to update {path}.",
                 path=self._link,
             ),
@@ -317,7 +317,7 @@ class VersionDeactivationWorker(_BaseWorker):
     def _deactivate_with_sudo(self) -> version_manager.ActivationState:
         response: dict[str, str | None] = {"password": None}
         self.password_requested.emit(
-            tr(
+            _(
                 "sudo password is required to update {path}.",
                 path=self._link,
             ),
@@ -468,12 +468,12 @@ class FlashWorker(_BaseWorker):
         if argv and argv[0] == "sudo":
             response: dict[str, str | None] = {"password": None}
             self.password_requested.emit(
-                tr("sudo password is required for flashing."), response
+                _("sudo password is required for flashing."), response
             )
             password = response["password"]
             if password is None:
                 self.process_output.emit(
-                    (tr("sudo password prompt was cancelled.") + "\n").encode()
+                    (_("sudo password prompt was cancelled.") + "\n").encode()
                 )
                 return 1
             if self._cancel_requested.is_set():

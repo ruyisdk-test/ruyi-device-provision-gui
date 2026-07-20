@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import repo_manager
-from .i18n import apply_qprocess_locale, tr, translate_widget_tree
+from .i18n import apply_qprocess_locale, _, translate_widget_tree
 from .rich_output import RICH_TERMINAL_ENV, RichTextView, strip_terminal_controls
 
 _REPO_ROLE = Qt.ItemDataRole.UserRole
@@ -45,7 +45,7 @@ class _RepoUpdateDialog(QDialog):
     def __init__(self, repo_id: str, parent=None) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self.setWindowTitle(tr("Repository update"))
+        self.setWindowTitle(_("Repository update"))
         self.resize(760, 440)
         self._news_actions_started = False
         self._news_action_running = False
@@ -53,7 +53,7 @@ class _RepoUpdateDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(
             QLabel(
-                tr(
+                _(
                     "Running: {command}",
                     command=f"ruyi update --repo {repo_id}",
                 )
@@ -119,12 +119,12 @@ class _RepoUpdateDialog(QDialog):
 
     def complete(self, success: bool) -> None:
         self._update_finished = True
-        self.cancel_button.setText(tr("Close"))
+        self.cancel_button.setText(_("Close"))
         self.cancel_button.setEnabled(True)
         self.cancel_button.clicked.disconnect()
         self.cancel_button.clicked.connect(self.accept)
         self.setWindowTitle(
-            tr("Repository update complete" if success else "Repository update failed")
+            _("Repository update complete" if success else "Repository update failed")
         )
         self.enable_news_actions()
 
@@ -157,7 +157,7 @@ class _RepoSourceDialog(QDialog):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(tr(title))
+        self.setWindowTitle(_(title))
         self.resize(560, 300)
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -171,11 +171,11 @@ class _RepoSourceDialog(QDialog):
         self.local_edit = QLineEdit(local)
         self.branch_edit = QLineEdit(branch)
         self.priority_edit = QLineEdit(str(priority))
-        self.priority_edit.setPlaceholderText(tr("Integer"))
+        self.priority_edit.setPlaceholderText(_("Integer"))
         self.name_edit.setEnabled(name_enabled)
         self.local_edit.setEnabled(False)
         self.priority_edit.setEnabled(priority_enabled)
-        form.addRow(tr("Name"), self.name_edit)
+        form.addRow(_("Name"), self.name_edit)
         self.source_combo = QComboBox()
         initial_source = repo_manager.RepoSource(
             remote or None,
@@ -188,26 +188,26 @@ class _RepoSourceDialog(QDialog):
             if option.branch:
                 label += f" [{option.branch}]"
             self.source_combo.addItem(
-                label or tr("Preset {number}", number=index + 1),
+                label or _("Preset {number}", number=index + 1),
                 option,
             )
             if repo_manager.source_matches_preset(initial_source, option):
                 selected_index = index
         custom_index = self.source_combo.count()
-        self.source_combo.addItem(tr("Custom"), None)
+        self.source_combo.addItem(_("Custom"), None)
         self.source_combo.currentIndexChanged.connect(self._select_source_option)
         self.source_combo.setCurrentIndex(
             custom_index if selected_index is None else selected_index
         )
         self._select_source_option(self.source_combo.currentIndex())
-        form.addRow(tr("Source preset"), self.source_combo)
-        form.addRow(tr("Remote URL"), self.remote_edit)
-        form.addRow(tr("Local path"), self.local_edit)
-        form.addRow(tr("Branch"), self.branch_edit)
-        form.addRow(tr("Priority"), self.priority_edit)
+        form.addRow(_("Source preset"), self.source_combo)
+        form.addRow(_("Remote URL"), self.remote_edit)
+        form.addRow(_("Local path"), self.local_edit)
+        form.addRow(_("Branch"), self.branch_edit)
+        form.addRow(_("Priority"), self.priority_edit)
         layout.addLayout(form)
         self.help_label = QLabel(
-            tr(
+            _(
                 "Use a remote URL, an absolute local path, or both. Repository ID and "
                 "name come from the preset list for additional repositories."
             )
@@ -261,8 +261,8 @@ class _RepoSourceDialog(QDialog):
         if priority is None:
             QMessageBox.warning(
                 self,
-                tr("Invalid priority"),
-                tr("Priority must be an integer."),
+                _("Invalid priority"),
+                _("Priority must be an integer."),
             )
             return
         if (
@@ -272,15 +272,15 @@ class _RepoSourceDialog(QDialog):
         ):
             QMessageBox.warning(
                 self,
-                tr("Missing source"),
-                tr("Enter a remote URL or local path."),
+                _("Missing source"),
+                _("Enter a remote URL or local path."),
             )
             return
         if source.local is not None and not Path(source.local).is_absolute():
             QMessageBox.warning(
                 self,
-                tr("Invalid local path"),
-                tr("Local path must be absolute."),
+                _("Invalid local path"),
+                _("Local path must be absolute."),
             )
             return
         super().accept()
@@ -472,7 +472,7 @@ class RepoManagementTab(QWidget):
         if default is None or not default.active:
             self.provision_update_finished.emit(
                 False,
-                tr(
+                _(
                     "Enable the ruyisdk repository in Repo Management to load device metadata."
                 ),
             )
@@ -480,7 +480,7 @@ class RepoManagementTab(QWidget):
         self._provision_update = True
         self._start_update(
             default.id,
-            tr("RuyiSDK metadata repository is ready."),
+            _("RuyiSDK metadata repository is ready."),
         )
 
     def reload(self) -> None:
@@ -491,13 +491,13 @@ class RepoManagementTab(QWidget):
         except repo_manager.RepoManagerError as exc:
             self._repos = ()
             self._set_status(
-                tr("Failed to read repository configuration."),
+                _("Failed to read repository configuration."),
                 "error",
                 details=str(exc),
             )
         else:
             self._populate_tables()
-            self._set_status(tr("Repository configuration loaded."), None)
+            self._set_status(_("Repository configuration loaded."), None)
         self._refresh_buttons()
 
     def _populate_tables(self) -> None:
@@ -513,7 +513,7 @@ class RepoManagementTab(QWidget):
                     item.setData(_REPO_ROLE, preset)
                 tooltip = value
                 if preset.id in configured_ids:
-                    tooltip += "\n" + tr("Already present in the local configuration.")
+                    tooltip += "\n" + _("Already present in the local configuration.")
                 item.setToolTip(tooltip)
                 self.preset_table.setItem(row, column, item)
 
@@ -528,7 +528,7 @@ class RepoManagementTab(QWidget):
                 source,
                 repo.branch or "",
                 str(repo.priority),
-                tr("Active" if repo.active else "Disabled"),
+                _("Active" if repo.active else "Disabled"),
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -539,7 +539,7 @@ class RepoManagementTab(QWidget):
             if repo.is_default:
                 for column in range(self.configured_table.columnCount()):
                     self.configured_table.item(row, column).setToolTip(
-                        tr(
+                        _(
                             "{value}\nThe default ruyisdk repository cannot be removed.",
                             value=values[column],
                         )
@@ -574,7 +574,7 @@ class RepoManagementTab(QWidget):
         )
         self.toggle_button.setEnabled(not busy and repo is not None)
         self.toggle_button.setText(
-            tr("Disable" if repo is not None and repo.active else "Enable")
+            _("Disable" if repo is not None and repo.active else "Enable")
         )
         self.update_button.setEnabled(not busy and repo is not None and repo.active)
 
@@ -584,7 +584,7 @@ class RepoManagementTab(QWidget):
             return
         source = preset.sources[0] if preset.sources else repo_manager.RepoSource()
         dialog = _RepoSourceDialog(
-            tr("Add {name}", name=preset.name),
+            _("Add {name}", name=preset.name),
             name=preset.name,
             remote=source.remote or "",
             local=source.local or "",
@@ -600,7 +600,7 @@ class RepoManagementTab(QWidget):
         assert priority is not None
         self._apply_mutation(
             preset.id,
-            tr(
+            _(
                 "Added {repo_id} as a disabled repository.",
                 repo_id=preset.id,
             ),
@@ -616,7 +616,7 @@ class RepoManagementTab(QWidget):
         if repo.is_default:
             configured = repo.configured_source or repo_manager.RepoSource()
             dialog = _RepoSourceDialog(
-                tr("Edit ruyisdk repository"),
+                _("Edit ruyisdk repository"),
                 remote=configured.remote or "",
                 local=configured.local or "",
                 branch=configured.branch or "",
@@ -628,7 +628,7 @@ class RepoManagementTab(QWidget):
                 parent=self,
             )
             dialog.help_label.setText(
-                tr(
+                _(
                     "Empty fields remove user overrides. Ruyi then uses its built-in remote "
                     "and main branch; local is optional. ID, name, and priority are fixed."
                 )
@@ -640,7 +640,7 @@ class RepoManagementTab(QWidget):
             source, _priority, _name = dialog.values()
             if not self._apply_mutation(
                 repo.id,
-                tr("Updated the default repository configuration."),
+                _("Updated the default repository configuration."),
                 lambda: repo_manager.edit_default_repo(self._config_path, repo, source),
                 require_change=True,
             ):
@@ -648,7 +648,7 @@ class RepoManagementTab(QWidget):
             if repo.active:
                 self._start_update(
                     repo.id,
-                    tr("Updated {repo_id}.", repo_id=repo.id),
+                    _("Updated {repo_id}.", repo_id=repo.id),
                 )
             return
 
@@ -658,7 +658,7 @@ class RepoManagementTab(QWidget):
             repo.branch,
         )
         dialog = _RepoSourceDialog(
-            tr("Edit {repo_id}", repo_id=repo.id),
+            _("Edit {repo_id}", repo_id=repo.id),
             name=repo.name,
             remote=configured.remote or "",
             local=configured.local or "",
@@ -674,7 +674,7 @@ class RepoManagementTab(QWidget):
             parent=self,
         )
         dialog.help_label.setText(
-            tr(
+            _(
                 "ID and name come from the preset. Remote, local path, branch, and "
                 "priority are stored through ruyi's configuration API. Local path is "
                 "read-only."
@@ -688,14 +688,14 @@ class RepoManagementTab(QWidget):
             return
         if not self._apply_mutation(
             repo.id,
-            tr("Updated {repo_id}.", repo_id=repo.id),
+            _("Updated {repo_id}.", repo_id=repo.id),
             lambda: repo_manager.edit_repo(self._config_path, repo, _source, priority),
         ):
             return
         if repo.active:
             self._start_update(
                 repo.id,
-                tr("Updated {repo_id}.", repo_id=repo.id),
+                _("Updated {repo_id}.", repo_id=repo.id),
             )
 
     def _remove_selected(self) -> None:
@@ -704,8 +704,8 @@ class RepoManagementTab(QWidget):
             return
         answer = QMessageBox.question(
             self,
-            tr("Remove repository"),
-            tr(
+            _("Remove repository"),
+            _(
                 "Remove '{repo_id}' from the local ruyi configuration? Cached data will be kept.",
                 repo_id=repo.id,
             ),
@@ -716,7 +716,7 @@ class RepoManagementTab(QWidget):
             return
         self._apply_mutation(
             repo.id,
-            tr("Removed {repo_id}.", repo_id=repo.id),
+            _("Removed {repo_id}.", repo_id=repo.id),
             lambda: repo_manager.remove_repo(self._config_path, repo),
         )
 
@@ -727,7 +727,7 @@ class RepoManagementTab(QWidget):
         enabled = not repo.active
         if not self._apply_mutation(
             repo.id,
-            tr(
+            _(
                 "Enabled {repo_id}." if enabled else "Disabled {repo_id}.",
                 repo_id=repo.id,
             ),
@@ -737,14 +737,14 @@ class RepoManagementTab(QWidget):
         if enabled:
             self._start_update(
                 repo.id,
-                tr("Enabled and updated {repo_id}.", repo_id=repo.id),
+                _("Enabled and updated {repo_id}.", repo_id=repo.id),
             )
 
     def _update_selected(self) -> None:
         repo = self._selected_repo()
         if repo is None or not repo.active or self.is_busy or self._external_busy:
             return
-        self._start_update(repo.id, tr("Updated {repo_id}.", repo_id=repo.id))
+        self._start_update(repo.id, _("Updated {repo_id}.", repo_id=repo.id))
 
     def _apply_mutation(
         self,
@@ -757,11 +757,11 @@ class RepoManagementTab(QWidget):
         try:
             result = operation()
         except repo_manager.RepoManagerError as exc:
-            self._set_status(tr("Repository operation failed."), "error")
+            self._set_status(_("Repository operation failed."), "error")
             QMessageBox.critical(
                 self,
-                tr("Repository operation failed"),
-                tr(str(exc)),
+                _("Repository operation failed"),
+                _(str(exc)),
             )
             return False
         if require_change and result is False:
@@ -818,7 +818,7 @@ class RepoManagementTab(QWidget):
             lambda error, p=process: self._on_process_error(p, error)
         )
         self._set_status(
-            tr("Updating repository {repo_id}...", repo_id=repo_id),
+            _("Updating repository {repo_id}...", repo_id=repo_id),
             None,
         )
         self.busy_changed.emit(True)
@@ -842,7 +842,7 @@ class RepoManagementTab(QWidget):
         self._process = None
         process.deleteLater()
         if self._cancel_requested:
-            self._finish_update(False, tr("Repository update cancelled."))
+            self._finish_update(False, _("Repository update cancelled."))
             return
         if code != 0:
             output = strip_terminal_controls(
@@ -850,7 +850,7 @@ class RepoManagementTab(QWidget):
             ).strip()
             self._finish_update(
                 False,
-                tr("Repository update failed (exit code {code}).", code=code),
+                _("Repository update failed (exit code {code}).", code=code),
                 details=output or None,
             )
             return
@@ -864,7 +864,7 @@ class RepoManagementTab(QWidget):
         if error == QProcess.ProcessError.FailedToStart:
             self._finish_update(
                 False,
-                tr("Failed to start the repository update process."),
+                _("Failed to start the repository update process."),
             )
         # Terminating an update reports Crashed before finished. The finished
         # handler owns cancellation classification and final output collection.
@@ -972,9 +972,9 @@ class RepoManagementTab(QWidget):
             lambda error, p=process, d=dialog: self._on_news_error(p, d, error)
         )
         dialog.append_output(
-            f"\n{tr('Reading unread news...')}\n"
+            f"\n{_('Reading unread news...')}\n"
             if action == "read"
-            else f"\n{tr('Marking all news as read...')}\n"
+            else f"\n{_('Marking all news as read...')}\n"
         )
         self.busy_changed.emit(True)
         self._refresh_buttons()
@@ -1000,13 +1000,13 @@ class RepoManagementTab(QWidget):
         process.deleteLater()
         if code == 0:
             dialog.append_output(
-                f"\n{tr('News read and marked as read.')}\n"
+                f"\n{_('News read and marked as read.')}\n"
                 if action == "read"
-                else f"\n{tr('All news marked as read.')}\n"
+                else f"\n{_('All news marked as read.')}\n"
             )
         else:
             dialog.append_output(
-                f"\n{tr('News operation failed with exit code {code}.', code=code)}\n"
+                f"\n{_('News operation failed with exit code {code}.', code=code)}\n"
             )
         dialog.finish_news_action()
         self.busy_changed.emit(False)
@@ -1021,7 +1021,7 @@ class RepoManagementTab(QWidget):
         if process is not self._news_process:
             return
         if error == QProcess.ProcessError.FailedToStart:
-            dialog.append_output(f"\n{tr('Failed to start the news operation.')}\n")
+            dialog.append_output(f"\n{_('Failed to start the news operation.')}\n")
             self._news_process = None
             process.deleteLater()
             dialog.finish_news_action()
@@ -1036,8 +1036,8 @@ class RepoManagementTab(QWidget):
         details: str | None = None,
     ) -> None:
         self.status.setText(text)
-        self.status.setText(tr(self.status.text()))
-        self.status.setToolTip(tr(details) if details else "")
+        self.status.setText(_(self.status.text()))
+        self.status.setToolTip(_(details) if details else "")
         self.status.setProperty("statusKind", kind or "")
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)

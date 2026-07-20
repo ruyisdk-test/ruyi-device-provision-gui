@@ -92,7 +92,7 @@ def active_locale() -> str | None:
     return _active_locale
 
 
-def tr(source: str, /, **values: object) -> str:
+def _(source: str, /, **values: object) -> str:
     """Translate one source string and optionally format named placeholders."""
     if not _initialized:
         initialize()
@@ -100,9 +100,9 @@ def tr(source: str, /, **values: object) -> str:
     if translated is not None:
         return translated.format(**values) if values else translated
     if translated is None and source.startswith("<b>") and source.endswith("</b>"):
-        return f"<b>{tr(source[3:-4])}</b>"
+        return f"<b>{_(source[3:-4])}</b>"
     if translated is None and (match := re.fullmatch(r"(\d+\. )(.*)", source)):
-        return match.group(1) + tr(match.group(2))
+        return match.group(1) + _(match.group(2))
     if translated is None:
         for pattern, template in _template_patterns:
             if match := pattern.fullmatch(source):
@@ -175,36 +175,36 @@ def translate_widget_tree(root) -> None:
     widgets = [root, *root.findChildren(QWidget)]
     for widget in widgets:
         if widget.windowTitle():
-            widget.setWindowTitle(tr(widget.windowTitle()))
+            widget.setWindowTitle(_(widget.windowTitle()))
         if widget.toolTip():
-            widget.setToolTip(tr(widget.toolTip()))
+            widget.setToolTip(_(widget.toolTip()))
         if widget.accessibleName():
-            widget.setAccessibleName(tr(widget.accessibleName()))
+            widget.setAccessibleName(_(widget.accessibleName()))
         if isinstance(widget, QLabel) and widget.text():
-            widget.setText(tr(widget.text()))
+            widget.setText(_(widget.text()))
         if isinstance(widget, QAbstractButton) and widget.text():
-            widget.setText(tr(widget.text()))
+            widget.setText(_(widget.text()))
         if isinstance(widget, QGroupBox) and widget.title():
-            widget.setTitle(tr(widget.title()))
+            widget.setTitle(_(widget.title()))
         if isinstance(widget, QLineEdit) and widget.placeholderText():
-            widget.setPlaceholderText(tr(widget.placeholderText()))
+            widget.setPlaceholderText(_(widget.placeholderText()))
         if isinstance(widget, QProgressBar) and widget.format():
-            widget.setFormat(tr(widget.format()))
+            widget.setFormat(_(widget.format()))
         if isinstance(widget, QTabWidget):
             for index in range(widget.count()):
-                widget.setTabText(index, tr(widget.tabText(index)))
+                widget.setTabText(index, _(widget.tabText(index)))
         if isinstance(widget, QListWidget):
             for index in range(widget.count()):
                 item = widget.item(index)
-                item.setText(tr(item.text()))
+                item.setText(_(item.text()))
         if isinstance(widget, QTableWidget):
             for column in range(widget.columnCount()):
                 item = widget.horizontalHeaderItem(column)
                 if item is not None:
-                    item.setText(tr(item.text()))
+                    item.setText(_(item.text()))
         if isinstance(widget, QComboBox):
             for index in range(widget.count()):
-                widget.setItemText(index, tr(widget.itemText(index)))
+                widget.setItemText(index, _(widget.itemText(index)))
 
 
 __all__ = [
@@ -216,6 +216,6 @@ __all__ = [
     "locale_environment",
     "preferred_locales",
     "resolve_locale",
-    "tr",
+    "_",
     "translate_widget_tree",
 ]

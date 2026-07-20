@@ -45,7 +45,7 @@ from .host_storage import (
     list_disks as list_disks,
     storage_platform_hint as storage_platform_hint,
 )
-from .i18n import tr
+from .i18n import _
 
 
 @dataclass(slots=True)
@@ -224,7 +224,7 @@ def list_package_version_selections(
                     original_atom=atom_str,
                     package_name=atom_str,
                     options=[PackageVersionOption(atom_str, atom_str)],
-                    locked_reason=tr("version cannot be overridden for slug atom"),
+                    locked_reason=_("version cannot be overridden for slug atom"),
                 )
             )
             continue
@@ -235,7 +235,7 @@ def list_package_version_selections(
                     original_atom=atom_str,
                     package_name=atom_str,
                     options=[PackageVersionOption(atom_str, atom_str)],
-                    locked_reason=tr("already has version constraints"),
+                    locked_reason=_("already has version constraints"),
                 )
             )
             continue
@@ -251,7 +251,7 @@ def list_package_version_selections(
                     original_atom=atom_str,
                     package_name=pkg_fullname,
                     options=[PackageVersionOption(atom_str, atom_str)],
-                    locked_reason=tr("package not found in repository"),
+                    locked_reason=_("package not found in repository"),
                 )
             )
             continue
@@ -266,7 +266,7 @@ def list_package_version_selections(
                     original_atom=atom_str,
                     package_name=pkg_fullname,
                     options=[PackageVersionOption(atom_str, atom_str)],
-                    locked_reason=tr("no matching versions found"),
+                    locked_reason=_("no matching versions found"),
                 )
             )
             continue
@@ -275,11 +275,11 @@ def list_package_version_selections(
         for pm in versions:
             remarks: list[str] = []
             if pm.is_prerelease:
-                remarks.append(tr("prerelease"))
+                remarks.append(_("prerelease"))
             if pm.service_level.has_known_issues:
-                remarks.append(tr("has known issues"))
+                remarks.append(_("has known issues"))
             if pm.upstream_version:
-                remarks.append(tr("upstream: {version}", version=pm.upstream_version))
+                remarks.append(_("upstream: {version}", version=pm.upstream_version))
             remark_str = f" ({', '.join(remarks)})" if remarks else ""
             if category:
                 new_atom = f"{category}/{package_name}(=={pm.ver})"
@@ -294,7 +294,7 @@ def list_package_version_selections(
                 options=options,
                 locked_reason=None
                 if len(options) > 1
-                else tr("only one version available"),
+                else _("only one version available"),
             )
         )
     return selections
@@ -434,14 +434,14 @@ def prepare_provision(
 
     requested: list[PartitionKind] = []
     seen_req: set[PartitionKind] = set()
-    for _, strat in strategies:
+    for _pkg, strat in strategies:
         for part in strat.need_host_blkdevs(all_parts):
             if part not in seen_req:
                 seen_req.add(part)
                 requested.append(part)
 
     needed_cmds: set[str] = set(
-        itertools.chain(*(strat.need_cmd for _, strat in strategies))
+        itertools.chain(*(strat.need_cmd for _pkg, strat in strategies))
     )
 
     return PreparedProvision(
@@ -512,7 +512,7 @@ def run_flash(
         log.D(f"flashing {pkg} with strategy {strat}")
         ret = strat.flash(prepared.pkg_part_maps[pkg], host_blkdev_map)
         if ret != 0:
-            log.F(tr("flashing failed, check your device right now"))
+            log.F(_("flashing failed, check your device right now"))
             return ret
     return 0
 

@@ -27,7 +27,7 @@ from . import __version__, version_manager
 from .i18n import (
     apply_qprocess_locale,
     locale_environment,
-    tr,
+    _,
     translate_widget_tree,
 )
 from .rich_output import RICH_TERMINAL_ENV, RichTextView
@@ -40,9 +40,9 @@ def application_version() -> str:
 def telemetry_summary(config, now: float | None = None) -> tuple[str, str]:
     mode = config.telemetry_mode
     if mode == "off":
-        return tr("Off"), tr("No periodic upload is scheduled.")
+        return _("Off"), _("No periodic upload is scheduled.")
     if mode == "local":
-        return tr("Local only"), tr("No periodic upload is scheduled.")
+        return _("Local only"), _("No periodic upload is scheduled.")
     now = time.time() if now is None else now
     try:
         installation = Path(config.state_root) / "telemetry" / "installation.json"
@@ -52,7 +52,7 @@ def telemetry_summary(config, now: float | None = None) -> tuple[str, str]:
             raise ValueError("invalid report UUID")
         upload_day = next_utc_weekday(int(report_uuid[:8], 16) % 7, now)
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return tr("On"), tr("Next upload window is unavailable.")
+        return _("On"), _("Next upload window is unavailable.")
     upload_window_end = upload_day + 86400
     last_upload = None
     try:
@@ -71,7 +71,7 @@ def telemetry_summary(config, now: float | None = None) -> tuple[str, str]:
         upload_day += 7 * 86400
     start = dt.datetime.fromtimestamp(upload_day, dt.UTC).astimezone()
     end = start + dt.timedelta(days=1)
-    return tr("On"), tr(
+    return _("On"), _(
         "Next upload window: {window}.",
         window=f"{start:%Y-%m-%d %H:%M %Z} - {end:%H:%M %Z}",
     )
@@ -171,13 +171,13 @@ class AboutTab(QWidget):
 
     def _load_info(self) -> None:
         self._version_label.setText(
-            tr("Version {version}", version=application_version())
+            _("Version {version}", version=application_version())
         )
         self.bundled_version.set_ansi(_bundled_version_text())
         mode, schedule = telemetry_summary(self._config)
         self.telemetry_mode.setText(mode)
         self.telemetry_schedule.setText(schedule)
-        self.path_version.setPlainText(tr("Switch to this tab to inspect PATH ruyi."))
+        self.path_version.setPlainText(_("Switch to this tab to inspect PATH ruyi."))
 
     def refresh(self, config=None) -> None:
         if config is not None:
@@ -198,7 +198,7 @@ class AboutTab(QWidget):
         )
         if path_state.command is None:
             self.path_version.setPlainText(
-                tr("No executable named ruyi was found on PATH.")
+                _("No executable named ruyi was found on PATH.")
             )
             return
         process = QProcess(self)
@@ -231,7 +231,7 @@ class AboutTab(QWidget):
         output = bytes(process.readAllStandardOutput()).decode(errors="replace").strip()
         self._path_process = None
         self.path_version.set_ansi(
-            output or tr("PATH ruyi exited with code {code}.", code=code)
+            output or _("PATH ruyi exited with code {code}.", code=code)
         )
         process.deleteLater()
 
@@ -250,7 +250,7 @@ class AboutTab(QWidget):
         self._path_process = None
         process.kill()
         process.deleteLater()
-        self.path_version.setPlainText(tr("PATH ruyi version probe timed out."))
+        self.path_version.setPlainText(_("PATH ruyi version probe timed out."))
 
 
 def _bundled_version_text() -> str:
@@ -270,11 +270,11 @@ def _bundled_version_text() -> str:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return tr("Bundled ruyi version is unavailable: {error}", error=exc)
+        return _("Bundled ruyi version is unavailable: {error}", error=exc)
     output = "\n".join(
         part.strip() for part in (completed.stdout, completed.stderr) if part.strip()
     )
-    return output or tr(
+    return output or _(
         "Bundled ruyi exited with code {code}.", code=completed.returncode
     )
 

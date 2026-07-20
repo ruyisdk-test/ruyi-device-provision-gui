@@ -16,7 +16,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from .i18n import tr
+from .i18n import _
 
 DEFAULT_DEVICE_ROOT = "/dev"
 
@@ -147,22 +147,22 @@ def storage_platform_hint() -> str:
     """Return concise platform guidance for the storage selector."""
     system = platform.system()
     if system == "Darwin":
-        return tr(
+        return _(
             "Select a whole disk such as /dev/rdiskN. Mounted disks require confirmation."
         )
     if system == "Linux":
         if _is_wsl2():
-            return tr(
+            return _(
                 "Running under WSL2. Attach USB storage with usbipd before selecting /dev/sdX or similar."
             )
-        return tr(
+        return _(
             "Select a whole disk such as /dev/sdX or /dev/nvme0n1. Mounted disks require confirmation."
         )
     if system == "Windows":
-        return tr(
+        return _(
             "Native Windows storage flashing is not supported. Run this GUI inside WSL2 and attach USB devices with usbipd."
         )
-    return tr("Storage flashing is not supported on {system}.", system=system)
+    return _("Storage flashing is not supported on {system}.", system=system)
 
 
 def _is_wsl2() -> bool:
@@ -209,7 +209,7 @@ def _linux_list_disks() -> list[BlockDeviceChoice]:
             parts.append(model)
         mounted = is_disk_or_child_mounted(dev_path)
         if mounted:
-            parts.append(tr("mounted"))
+            parts.append(_("mounted"))
         choices.append(
             BlockDeviceChoice(
                 path=dev_path,
@@ -252,7 +252,7 @@ def _darwin_list_disks() -> list[BlockDeviceChoice]:
             parts.append(name)
         mounted = _darwin_disk_or_child_mounted(path)
         if mounted:
-            parts.append(tr("mounted"))
+            parts.append(_("mounted"))
         choices.append(
             BlockDeviceChoice(
                 path=path,

@@ -19,7 +19,7 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(os, "setpgrp"):
         os.setpgrp()
 
-    from .i18n import initialize, localize_config, tr
+    from .i18n import initialize, localize_config, _
 
     initialize()
 
@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     config = localize_config(GlobalConfig.load_from_config(gm, logger))
     entries = [entry for entry in config.repo_entries if entry.id == repo_id]
     if not entries or not entries[0].active:
-        logger.F(tr("no active repo with id '{repo_id}'", repo_id=repo_id))
+        logger.F(_("no active repo with id '{repo_id}'", repo_id=repo_id))
         return 1
     # Keep the native update command, but scope every operation in this child
     # process to the repository selected by the GUI.

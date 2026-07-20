@@ -31,7 +31,7 @@ def _locale_probe(locale: str, root: Path) -> dict[str, object]:
             install_qt_translations,
             locale_environment,
             localize_config,
-            tr,
+            _,
         )
 
         initialize()
@@ -105,8 +105,8 @@ def _locale_probe(locale: str, root: Path) -> dict[str, object]:
             "logger": logs,
             "progress": download_dialog._progress.format(),
             "cancel_requested": cancellations,
-            "formatted_template": tr("Version for {package}", package="foo"),
-            "matched_template": tr("Version for foo"),
+            "formatted_template": _("Version for {package}", package="foo"),
+            "matched_template": _("Version for foo"),
         }
         window.close()
         print(json.dumps(result))
