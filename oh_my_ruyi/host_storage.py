@@ -77,7 +77,7 @@ def device_fingerprint(path: str) -> str | None:
             info = _darwin_diskutil_plist("info", "-plist", disk)
             if info is None:
                 return None
-            return _darwin_fingerprint_from_info(info)
+            return _darwin_disk_fingerprint(info, disk)
 
     if stat.S_ISBLK(path_stat.st_mode) or stat.S_ISCHR(path_stat.st_mode):
         parts = [
@@ -258,13 +258,17 @@ def _darwin_list_disks() -> list[BlockDeviceChoice]:
                 path=path,
                 display_name=" - ".join(parts),
                 mounted=mounted,
-                fingerprint=_darwin_fingerprint_from_info(info),
+                fingerprint=_darwin_disk_fingerprint(info, disk),
             )
         )
     return _sort_disk_choices(choices)
 
 
-def _darwin_fingerprint_from_info(info: dict[str, Any]) -> str | None:
+def _darwin_fingerprint_from_info(
+    info: dict[str, Any],
+    *,
+    registry_id: int | None = None,
+) -> str | None:
     stable_ids = tuple(
         str(info.get(key) or "")
         for key in (
@@ -275,15 +279,63 @@ def _darwin_fingerprint_from_info(info: dict[str, Any]) -> str | None:
             "APFSVolumeUUID",
         )
     )
-    if not any(stable_ids):
+    if not any(stable_ids) and registry_id is None:
         return None
     values = (
         info.get("DeviceIdentifier"),
         *stable_ids,
+        registry_id,
         info.get("TotalSize") or info.get("Size"),
         info.get("MediaName"),
     )
     return "darwin:" + ":".join(str(value or "") for value in values)
+
+
+def _darwin_disk_fingerprint(info: dict[str, Any], disk: str) -> str | None:
+    fingerprint = _darwin_fingerprint_from_info(info)
+    if fingerprint is not None:
+        return fingerprint
+    return _darwin_fingerprint_from_info(
+        info,
+        registry_id=_darwin_io_registry_id(disk),
+    )
+
+
+def _darwin_io_registry_id(disk: str) -> int | None:
+    try:
+        proc = subprocess.run(
+            ["/usr/sbin/ioreg", "-a", "-r", "-c", "IOMedia"],
+            check=False,
+            capture_output=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        payload = plistlib.loads(proc.stdout)
+    except (plistlib.InvalidFileException, ValueError):
+        return None
+    return _darwin_find_registry_id(payload, disk)
+
+
+def _darwin_find_registry_id(value: object, disk: str) -> int | None:
+    if isinstance(value, dict):
+        if value.get("BSD Name") == disk:
+            registry_id = value.get("IORegistryEntryID")
+            if isinstance(registry_id, int) and not isinstance(registry_id, bool):
+                return registry_id
+        for child in value.values():
+            registry_id = _darwin_find_registry_id(child, disk)
+            if registry_id is not None:
+                return registry_id
+    elif isinstance(value, list):
+        for child in value:
+            registry_id = _darwin_find_registry_id(child, disk)
+            if registry_id is not None:
+                return registry_id
+    return None
 
 
 def _darwin_disk_or_child_mounted(path: str) -> bool:

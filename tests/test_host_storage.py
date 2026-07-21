@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import plistlib
 from pathlib import Path
 from types import SimpleNamespace
 import os
@@ -119,6 +120,11 @@ def test_darwin_disks_sort_unmounted_before_mounted(monkeypatch) -> None:
     monkeypatch.setattr(host_storage, "_darwin_diskutil_plist", fake_diskutil)
     monkeypatch.setattr(
         host_storage,
+        "_darwin_io_registry_id",
+        lambda disk: {"disk1": 101, "disk2": 202}[disk],
+    )
+    monkeypatch.setattr(
+        host_storage,
         "_darwin_disk_or_child_mounted",
         lambda path: path == "/dev/rdisk1",
     )
@@ -127,6 +133,7 @@ def test_darwin_disks_sort_unmounted_before_mounted(monkeypatch) -> None:
 
     assert [disk.path for disk in disks] == ["/dev/rdisk2", "/dev/rdisk1"]
     assert [disk.mounted for disk in disks] == [False, True]
+    assert all(disk.fingerprint for disk in disks)
 
 
 def test_darwin_apfs_volume_marks_physical_store_mounted(monkeypatch) -> None:
@@ -180,7 +187,7 @@ def test_darwin_file_named_disk_is_not_treated_as_device(
     assert host_storage.device_fingerprint(str(image)).startswith("file:")
 
 
-def test_darwin_fingerprint_requires_stable_media_id() -> None:
+def test_darwin_fingerprint_requires_stable_media_or_registry_id() -> None:
     assert (
         host_storage._darwin_fingerprint_from_info(
             {
@@ -202,6 +209,73 @@ def test_darwin_fingerprint_requires_stable_media_id() -> None:
     assert fingerprint is not None
     assert "stable-media-id" in fingerprint
     assert "64000000000" in fingerprint
+
+    fingerprint = host_storage._darwin_fingerprint_from_info(
+        {
+            "DeviceIdentifier": "disk4",
+            "Size": 64_000_000_000,
+            "MediaName": "Generic STORAGE DEVICE Media",
+        },
+        registry_id=123456,
+    )
+    assert fingerprint is not None
+    assert "123456" in fingerprint
+    assert "64000000000" in fingerprint
+
+    replacement = host_storage._darwin_fingerprint_from_info(
+        {
+            "DeviceIdentifier": "disk4",
+            "Size": 64_000_000_000,
+            "MediaName": "Generic STORAGE DEVICE Media",
+        },
+        registry_id=123457,
+    )
+    assert replacement != fingerprint
+
+
+def test_darwin_disk_fingerprint_only_queries_registry_without_uuid(
+    monkeypatch,
+) -> None:
+    registry_queries: list[str] = []
+    monkeypatch.setattr(
+        host_storage,
+        "_darwin_io_registry_id",
+        lambda disk: registry_queries.append(disk) or 123456,
+    )
+
+    with_uuid = host_storage._darwin_disk_fingerprint(
+        {"DeviceIdentifier": "disk4", "MediaUUID": "stable-media-id"},
+        "disk4",
+    )
+    without_uuid = host_storage._darwin_disk_fingerprint(
+        {"DeviceIdentifier": "disk5", "TotalSize": 32_000_000_000},
+        "disk5",
+    )
+
+    assert with_uuid is not None and "stable-media-id" in with_uuid
+    assert without_uuid is not None and "123456" in without_uuid
+    assert registry_queries == ["disk5"]
+
+
+def test_darwin_io_registry_id_matches_whole_disk(monkeypatch) -> None:
+    payload = plistlib.dumps(
+        [
+            {
+                "BSD Name": "disk4",
+                "IORegistryEntryID": 123456,
+                "IORegistryEntryChildren": [
+                    {"BSD Name": "disk4s1", "IORegistryEntryID": 654321}
+                ],
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        host_storage.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=payload),
+    )
+
+    assert host_storage._darwin_io_registry_id("disk4") == 123456
 
 
 def test_darwin_diskutil_rejects_invalid_plist(monkeypatch) -> None:

@@ -221,7 +221,9 @@ The storage path selected by the user is not trusted by name alone. Its device
 fingerprint is recorded at review time and checked again before flashing and at
 each actual `dd` invocation. Mounted targets require explicit confirmation, and
 Linux checks follow holder relationships for device-mapper, LUKS, LVM, and RAID
-stacks.
+stacks. On macOS, formatted media uses UUID data from `diskutil`; unformatted
+media falls back to its current I/O Registry entry ID, so reconnecting or
+replacing the device requires selecting it again.
 
 When adding a flashing path, preserve all of these checks. A UI confirmation is
 not a substitute for revalidation immediately before the destructive command.
