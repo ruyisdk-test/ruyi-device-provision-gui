@@ -10,11 +10,12 @@ permissions:
 
 jobs:
   checks:
-    name: Checks / Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    name: Checks / ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-14]
         python-version: ["3.11", "3.12"]
 
     steps:
@@ -22,6 +23,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Qt runtime libraries
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \

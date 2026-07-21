@@ -323,10 +323,10 @@ is explicitly an integration test.
 
 ## CI and Packaging
 
-The primary workflow tests Python 3.11 and 3.12. It checks the lockfile, Ruff,
-formatting, compilation, package construction, and the full offscreen suite.
-The manually triggered Debian workflow validates Debian 12 and 13, system
-Python, offscreen tests, and the xcb plugin under Xvfb.
+The primary workflow tests Python 3.11 and 3.12 on Linux and macOS. It checks
+the lockfile, Ruff, formatting, compilation, package construction, and the full
+offscreen suite. The manually triggered Debian workflow validates Debian 12 and
+13, system Python, offscreen tests, and the xcb plugin under Xvfb.
 
 The wheel is built by Hatchling through `uv build`. Package files are selected
 from `oh_my_ruyi`, including translation catalogs below `locales/`. After adding
