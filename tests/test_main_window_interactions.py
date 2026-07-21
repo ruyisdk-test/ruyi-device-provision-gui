@@ -1636,6 +1636,7 @@ def test_flash_revalidates_mount_state(
     monkeypatch,
     tmp_path,
 ) -> None:
+    monkeypatch.setattr(host_storage, "validation_is_slow", lambda: False)
     window._tabs.setCurrentIndex(2)
     target = tmp_path / "target.img"
     target.touch()
