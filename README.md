@@ -1,5 +1,9 @@
 # oh-my-ruyi
 
+[![License](https://img.shields.io/github/license/ruyisdk-test/ruyi-device-provision-gui)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![Latest tag](https://img.shields.io/github/v/tag/ruyisdk-test/ruyi-device-provision-gui?label=latest%20tag)](https://github.com/ruyisdk-test/ruyi-device-provision-gui/tags)
+
 (如意宝 in Chinese)
 
 Newly designed [ruyi-device-gui](https://github.com/weilinfox/ruyi-device-gui).
