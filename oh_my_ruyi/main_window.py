@@ -46,7 +46,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSizePolicy,
@@ -56,6 +55,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -1239,7 +1239,8 @@ class ProvisionMainWindow(QMainWindow):
             ],
         )
 
-        self._review_steps = QPlainTextEdit()
+        self._review_steps = self._make_log_view()
+        self._review_steps.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         self._review_steps.setReadOnly(True)
         self._review_missing = QLabel("")
         self._review_missing.setWordWrap(True)
@@ -3873,7 +3874,9 @@ class ProvisionMainWindow(QMainWindow):
         steps = ruyi_facade.compute_pretend_steps(
             self.state.prepared, self.state.host_blkdev_map
         )
-        self._review_steps.setPlainText("\n".join(f" * {s}" for s in steps))
+        self._review_steps.clear()
+        for step in steps:
+            self._review_steps.append_rich(f" * {step}")
         missing = ruyi_facade.missing_cmds(self.state.prepared)
         self._review_missing.setText(
             _("Missing required commands: {commands}.", commands=", ".join(missing))

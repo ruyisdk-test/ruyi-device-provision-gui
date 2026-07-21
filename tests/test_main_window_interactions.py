@@ -1850,6 +1850,34 @@ def test_flash_rejects_replaced_target(
     assert "has changed" in window._storage_error.text()
 
 
+def test_review_steps_render_ruyi_rich_markup(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    window.state.prepared = SimpleNamespace(
+        requested_host_blkdevs=[], needed_cmds=set()
+    )
+    monkeypatch.setattr(
+        ruyi_facade,
+        "compute_pretend_steps",
+        lambda *_args: ["write [yellow]/path/to/image.img[/] to [green]/dev/rdisk4[/]"],
+    )
+    monkeypatch.setattr(ruyi_facade, "missing_cmds", lambda _prepared: [])
+    monkeypatch.setattr(
+        ruyi_facade,
+        "needs_fastboot_confirmation",
+        lambda _prepared: False,
+    )
+
+    window._populate_review()
+
+    assert window._review_steps.toPlainText().strip() == (
+        "* write /path/to/image.img to /dev/rdisk4"
+    )
+    assert "[yellow]" not in window._review_steps.toPlainText()
+    assert "color:" in window._review_steps.toHtml()
+
+
 def test_successful_flash_advances_to_done_and_can_return_to_flash(
     window: ProvisionMainWindow,
 ) -> None:
