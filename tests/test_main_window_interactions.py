@@ -1831,6 +1831,7 @@ def test_flash_rejects_replaced_target(
     monkeypatch,
     tmp_path,
 ) -> None:
+    monkeypatch.setattr(host_storage, "validation_is_slow", lambda: False)
     target = tmp_path / "target.img"
     target.touch()
     window.state.prepared = SimpleNamespace(
@@ -2134,6 +2135,7 @@ def test_storage_controls_have_accessible_labels(
     window: ProvisionMainWindow,
     monkeypatch,
 ) -> None:
+    monkeypatch.setattr(host_storage, "validation_is_slow", lambda: False)
     window.state.prepared = SimpleNamespace(
         requested_host_blkdevs=["disk"],
         needed_cmds=set(),
