@@ -70,7 +70,9 @@ def _download_architecture_for_host() -> str:
 
 
 def _host_download_url(version: str) -> str:
-    return f"https://downloads.example/ruyi-{version}.{_download_architecture_for_host()}"
+    return (
+        f"https://downloads.example/ruyi-{version}.{_download_architecture_for_host()}"
+    )
 
 
 @pytest.fixture
@@ -1065,7 +1067,10 @@ def test_add_url_is_transient_and_survives_refresh(
     assert window._pm_available_table.rowCount() == 1
     assert window._pm_available_table.item(0, 0).text() == "0.53.0-beta.1"
     assert window._pm_available_table.item(0, 1).text() == "custom"
-    assert window._pm_available_table.item(0, 2).text() == version_manager.host_architecture()
+    assert (
+        window._pm_available_table.item(0, 2).text()
+        == version_manager.host_architecture()
+    )
     assert window._pm_download_btn.isEnabled()
     assert window._pm_remove_url_btn.isEnabled()
 
