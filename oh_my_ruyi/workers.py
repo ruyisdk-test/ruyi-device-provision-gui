@@ -34,7 +34,7 @@ from ruyi.ruyipkg.composite_repo import CompositeRepo
 from ruyi.ruyipkg.pkg_manifest import PartitionKind, PartitionMapDecl
 
 from . import host_storage, ruyi_facade, version_manager
-from .i18n import _
+from .i18n import _, format_exception_message
 from .ruyi_facade import PreparedProvision
 
 
@@ -51,9 +51,8 @@ class _BaseWorker(QObject):
     finished = Signal(object)  # worker-specific result type
     failed = Signal(str)  # error message
 
-    def _fail(self, exc: BaseException) -> None:
-        msg = f"{type(exc).__name__}: {_(str(exc))}"
-        self.failed.emit(msg)
+    def _fail(self, exc: Exception) -> None:
+        self.failed.emit(format_exception_message(exc))
 
 
 class RepoInitWorker(_BaseWorker):
@@ -69,7 +68,7 @@ class RepoInitWorker(_BaseWorker):
         try:
             mr = ruyi_facade.ensure_repo(self._config)
             self.finished.emit(mr)
-        except BaseException as exc:  # noqa: BLE001 - surface to UI
+        except Exception as exc:  # noqa: BLE001 - surface to UI
             self._fail(exc)
 
 
@@ -87,7 +86,7 @@ class RepoSyncWorker(_BaseWorker):
         try:
             mr = ruyi_facade.sync_repo(self._config, self._mr)
             self.finished.emit(mr)
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             self._fail(exc)
 
 
@@ -98,7 +97,7 @@ class StorageDiscoveryWorker(_BaseWorker):
     def run(self) -> None:
         try:
             self.finished.emit(host_storage.list_disks())
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             self._fail(exc)
 
 
@@ -109,7 +108,7 @@ class VersionCatalogWorker(_BaseWorker):
     def run(self) -> None:
         try:
             self.finished.emit(version_manager.fetch_release_catalog())
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             self._fail(exc)
 
 
@@ -172,7 +171,7 @@ class VersionDownloadWorker(_BaseWorker):
             )
         except version_manager.DownloadCancelledError:
             self.cancelled.emit()
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             self._fail(exc)
 
 
@@ -208,7 +207,7 @@ class VersionActivationWorker(_BaseWorker):
             else:
                 result = self._activate_with_sudo()
             self.finished.emit(result)
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             self._fail(exc)
 
     def _activate_with_sudo(self) -> version_manager.ActivationResult:
@@ -286,7 +285,7 @@ class VersionDeleteWorker(_BaseWorker):
                     link=self._link,
                 )
             )
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             self._fail(exc)
 
 
@@ -311,7 +310,7 @@ class VersionDeactivationWorker(_BaseWorker):
             else:
                 result = self._deactivate_with_sudo()
             self.finished.emit(result)
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             self._fail(exc)
 
     def _deactivate_with_sudo(self) -> version_manager.ActivationState:
@@ -376,7 +375,7 @@ class TelemetrySetupWorker(_BaseWorker):
             if exc.output:
                 self.process_output.emit(exc.output)
             self._fail(exc)
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             self._fail(exc)
 
 
@@ -416,7 +415,7 @@ class FlashWorker(_BaseWorker):
                 self.cancelled.emit()
             else:
                 self.finished.emit(ret)
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             if self._cancel_requested.is_set():
                 self.cancelled.emit()
             else:
@@ -651,3 +650,13 @@ def run_worker_in_thread(worker: _BaseWorker) -> QThread:
     thread.started.connect(worker.run, type=Qt.ConnectionType.QueuedConnection)
     thread.start()
     return thread
+
+
+def safe_stop_thread(thread: QThread | None, timeout_ms: int = 3000) -> None:
+    """Safely quit and wait for a worker thread, terminating if it hangs."""
+    if thread is None or not thread.isRunning():
+        return
+    thread.quit()
+    if not thread.wait(timeout_ms):
+        thread.terminate()
+        thread.wait(1000)

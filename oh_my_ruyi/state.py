@@ -48,3 +48,27 @@ class WizardState:
 
     # Cached message displayed on the Done step (may be empty).
     postinst_msg: Optional[str] = None
+
+    def reset_from_category(self) -> None:
+        """Reset all selections from category selection downwards."""
+        self.device = None
+        self.reset_from_device()
+
+    def reset_from_device(self) -> None:
+        """Reset all selections from device selection downwards."""
+        self.variant = None
+        self.reset_from_variant()
+
+    def reset_from_variant(self) -> None:
+        """Reset all selections from variant selection downwards."""
+        self.combo = None
+        self.reset_from_combo()
+
+    def reset_from_combo(self) -> None:
+        """Reset all selections from combo selection downwards."""
+        self.pkg_atoms.clear()
+        self.prepared = None
+        self.host_blkdev_map.clear()
+        self.host_blkdev_fingerprints.clear()
+        self.flash_ret = None
+        self.postinst_msg = None

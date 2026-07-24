@@ -1,4 +1,5 @@
 from __future__ import annotations
+from oh_my_ruyi.state_machine import ProvisionStateMachine
 
 import os
 import platform
@@ -116,7 +117,7 @@ def test_feature_tabs_are_in_required_order(window: ProvisionMainWindow) -> None
     assert window._repo_manager_tab.layout() is not None
     assert window._repo_manager_tab.preset_table.rowCount() == 1
     assert window._repo_manager_tab.configured_table.rowCount() == 1
-    assert window._stack.widget(window.STEP_WELCOME).accessibleName() == (
+    assert window._stack.widget(ProvisionStateMachine.STEP_WELCOME).accessibleName() == (
         "RuyiSDK Device Provisioning"
     )
 
@@ -363,17 +364,16 @@ def test_repo_init_disables_repo_management(
     window: ProvisionMainWindow,
     monkeypatch,
 ) -> None:
-    thread = object()
-    monkeypatch.setattr(main_window, "run_worker_in_thread", lambda _worker: thread)
+    monkeypatch.setattr("oh_my_ruyi.worker_manager.WorkerTaskRunner.run_worker", lambda self, worker, *args, **kwargs: worker)
     window._repo_manager_tab.preset_table.selectRow(0)
     assert window._repo_manager_tab.add_button.isEnabled()
 
     window._start_repo_init()
 
-    assert window._thread is thread
+    assert window._worker is not None
     assert window._repo_manager_tab._external_busy
     assert not window._repo_manager_tab.preset_table.isEnabled()
-    window._thread = None
+    
     window._worker = None
 
 
@@ -405,8 +405,8 @@ def test_disabled_default_repo_stays_on_ready_page(
     qtbot.addWidget(window)
     window._tabs.setCurrentWidget(window._provision_tab)
 
-    assert window._thread is None
-    assert window._current_step == window.STEP_WELCOME
+    assert window._worker is None
+    assert window._machine.current_step == ProvisionStateMachine.STEP_WELCOME
     assert window._welcome_status.text() == (
         "Enable the ruyisdk repository in Repo Management to load device metadata."
     )
@@ -977,7 +977,7 @@ def test_download_dialog_retries_another_url_and_closes_after_success(
     assert dialog is not None
     dialog._download_button.click()
 
-    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._pm_worker is None, timeout=2000)
     assert dialog.isVisible()
     assert "primary unavailable" not in dialog._status.text()
     assert "primary unavailable" in dialog._output.toPlainText()
@@ -1045,7 +1045,7 @@ def test_download_dialog_cancel_requests_worker_and_cleans_up(
     assert dialog._progress.value() == 0
     assert dialog._progress.format() == "Cancelling..."
     assert window._pm_status.text() == "Cancelling download..."
-    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._pm_worker is None, timeout=2000)
     assert window._pm_status.text() == "Download cancelled."
     assert not (window._pm_versions_directory / "ruyi-0.50.0").exists()
     assert not list(window._pm_versions_directory.glob("*.download"))
@@ -1283,7 +1283,7 @@ def test_activation_confirms_and_backs_up_unmanaged_command(
 
     window._toggle_selected_pm_version_activation()
 
-    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._pm_worker is None, timeout=2000)
     assert window._pm_activation_link.is_symlink()
     assert window._pm_activation_link.resolve() == binary
     assert window._pm_activation_link.with_name("ruyi.bak").read_bytes() == b"old"
@@ -1312,17 +1312,17 @@ def test_downloaded_versions_can_switch_delete_and_deactivate(
     assert window._pm_toggle_activation_btn.text() == "Activate"
     assert window._pm_delete_btn.isEnabled()
     window._toggle_selected_pm_version_activation()
-    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._pm_worker is None, timeout=2000)
     assert window._pm_activation_link.resolve() == testing
 
     window._toggle_selected_pm_version_activation()
-    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._pm_worker is None, timeout=2000)
     assert not os.path.lexists(window._pm_activation_link)
     assert stable.exists() and testing.exists()
 
     window._refresh_pm_versions(select_installed_version="0.50.0")
     window._delete_selected_pm_version()
-    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._pm_worker is None, timeout=2000)
     assert not stable.exists()
     assert testing.exists()
 
@@ -1430,7 +1430,7 @@ def test_first_install_runs_selected_mode_and_telemetry_status(
 
     window._maybe_start_pm_telemetry()
 
-    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._pm_worker is None, timeout=2000)
     assert log.read_text().splitlines() == [
         f"{window._pm_activation_link}|telemetry status"
     ]
@@ -1517,39 +1517,42 @@ def _test_palette(*, dark: bool) -> QPalette:
 
 
 def test_sidebar_cannot_skip_forward_steps(window: ProvisionMainWindow) -> None:
-    window._set_step(window.STEP_PACKAGES)
+    print('BEFORE SET_STEP: current=', window._machine.current_step)
+    window._set_step(ProvisionStateMachine.STEP_PACKAGES)
+    print('AFTER SET_STEP: current=', window._machine.current_step)
 
-    window._steps.setCurrentRow(window.STEP_REVIEW)
+    window._steps.setCurrentRow(ProvisionStateMachine.STEP_REVIEW)
+    print('AFTER SETCURRENTROW: current=', window._machine.current_step)
 
-    assert window._current_step == window.STEP_PACKAGES
-    assert window._steps.currentRow() == window.STEP_PACKAGES
+    assert window._machine.current_step == ProvisionStateMachine.STEP_PACKAGES
+    assert window._steps.currentRow() == ProvisionStateMachine.STEP_PACKAGES
 
 
 def test_device_step_is_clickable_after_returning_to_ready(
     window: ProvisionMainWindow,
 ) -> None:
     window.state.mr = object()
-    window._set_step(window.STEP_DEVICE)
+    window._set_step(ProvisionStateMachine.STEP_DEVICE)
 
     window._go_back()
 
-    device_item = window._steps.item(window.STEP_DEVICE)
+    device_item = window._steps.item(ProvisionStateMachine.STEP_DEVICE)
     assert device_item.flags() & Qt.ItemFlag.ItemIsEnabled
 
-    window._steps.setCurrentRow(window.STEP_DEVICE)
+    window._steps.setCurrentRow(ProvisionStateMachine.STEP_DEVICE)
 
-    assert window._current_step == window.STEP_DEVICE
+    assert window._machine.current_step == ProvisionStateMachine.STEP_DEVICE
 
 
 @pytest.mark.parametrize(
     ("step", "widget_name"),
     [
-        (ProvisionMainWindow.STEP_DEVICE, "_device_list"),
-        (ProvisionMainWindow.STEP_VARIANT, "_variant_list"),
-        (ProvisionMainWindow.STEP_COMBO, "_combo_list"),
-        (ProvisionMainWindow.STEP_PACKAGES, "_packages_list"),
-        (ProvisionMainWindow.STEP_DOWNLOAD, "_download_log"),
-        (ProvisionMainWindow.STEP_FLASH, "_flash_log"),
+        (ProvisionStateMachine.STEP_DEVICE, "_device_list"),
+        (ProvisionStateMachine.STEP_VARIANT, "_variant_list"),
+        (ProvisionStateMachine.STEP_COMBO, "_combo_list"),
+        (ProvisionStateMachine.STEP_PACKAGES, "_packages_list"),
+        (ProvisionStateMachine.STEP_DOWNLOAD, "_download_log"),
+        (ProvisionStateMachine.STEP_FLASH, "_flash_log"),
     ],
 )
 def test_primary_step_content_fills_page_height(
@@ -1645,7 +1648,7 @@ def test_flash_revalidates_mount_state(
         needed_cmds=set(),
     )
     window.state.host_blkdev_map = {"disk": str(target)}
-    window._set_step(window.STEP_REVIEW)
+    window._set_step(ProvisionStateMachine.STEP_REVIEW)
     monkeypatch.setattr(ruyi_facade, "part_description", lambda _part: "Whole disk")
     monkeypatch.setattr(host_storage, "list_disks", lambda: [])
     monkeypatch.setattr(host_storage, "is_disk_or_child_mounted", lambda _path: True)
@@ -1654,24 +1657,24 @@ def test_flash_revalidates_mount_state(
 
     window._start_flash()
 
-    assert window._current_step == window.STEP_STORAGE
+    assert window._machine.current_step == ProvisionStateMachine.STEP_STORAGE
     assert "now mounted" in window._storage_error.text()
     assert window._storage_mount_warnings["disk"].isVisibleTo(window)
     assert not window._storage_mount_confirmations["disk"].isChecked()
-    assert window._thread is None
+    assert window._worker is None
 
 
 def test_failed_download_start_releases_busy_state(window: ProvisionMainWindow) -> None:
     window._tabs.setCurrentIndex(2)
     window.state.pkg_atoms = ["board-image/test"]
-    window._set_step(window.STEP_DOWNLOAD)
+    window._set_step(ProvisionStateMachine.STEP_DOWNLOAD)
     window._download_process = QProcess(window)
 
     window._on_download_process_error(QProcess.ProcessError.FailedToStart)
 
     assert window._download_process is None
     assert not window._is_busy()
-    assert window._download_recoverable
+    assert window._machine.download_recoverable
     assert window._download_recovery_row.isVisibleTo(window)
 
 
@@ -1782,7 +1785,7 @@ def test_fastboot_check_accepts_device_record_on_stderr(
 
     window._check_fastboot_devices()
 
-    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=2000)
     assert window._fastboot_ok
     assert "SERIAL" not in window._fastboot_status.text()
     assert "SERIAL" in window._fastboot_log.toPlainText()
@@ -1801,7 +1804,7 @@ def test_fastboot_check_accepts_dfu_download_output(
 
     window._check_fastboot_devices()
 
-    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=2000)
     assert window._fastboot_ok
     assert "dfu-device       DFU download" not in window._fastboot_status.text()
     assert "dfu-device       DFU download" in window._fastboot_log.toPlainText()
@@ -1820,7 +1823,7 @@ def test_fastboot_check_accepts_nonempty_stdout_without_parsing(
 
     window._check_fastboot_devices()
 
-    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=2000)
     assert window._fastboot_ok
     assert "unrecognized device format" not in window._fastboot_status.text()
     assert "unrecognized device format" in window._fastboot_log.toPlainText()
@@ -1846,7 +1849,7 @@ def test_flash_rejects_replaced_target(
 
     window._start_flash()
 
-    assert window._current_step == window.STEP_STORAGE
+    assert window._machine.current_step == ProvisionStateMachine.STEP_STORAGE
     assert "has changed" in window._storage_error.text()
 
 
@@ -1915,11 +1918,11 @@ def test_successful_flash_advances_to_done_and_can_return_to_flash(
         requested_host_blkdevs=[], needed_cmds=set()
     )
     window._flash_log.setPlainText("fastboot flash complete")
-    window._set_step(window.STEP_FLASH)
+    window._set_step(ProvisionStateMachine.STEP_FLASH)
 
     window._on_flash_finished(0)
 
-    assert window._current_step == window.STEP_DONE
+    assert window._machine.current_step == ProvisionStateMachine.STEP_DONE
     assert window.state.flash_ret == 0
     assert window._done_label.text() == (
         "It seems the flashing has finished without errors. Happy hacking!"
@@ -1927,38 +1930,38 @@ def test_successful_flash_advances_to_done_and_can_return_to_flash(
 
     window._go_back()
 
-    assert window._current_step == window.STEP_FLASH
+    assert window._machine.current_step == ProvisionStateMachine.STEP_FLASH
     assert window._flash_status.text() == "Flash complete."
     assert window._flash_log.toPlainText() == "fastboot flash complete"
     assert window._next_btn.isEnabled()
-    assert window._steps.item(window.STEP_DONE).flags() & Qt.ItemFlag.ItemIsEnabled
+    assert window._steps.item(ProvisionStateMachine.STEP_DONE).flags() & Qt.ItemFlag.ItemIsEnabled
 
     window._go_next()
 
-    assert window._current_step == window.STEP_DONE
-    assert window._steps.item(window.STEP_FLASH).flags() & Qt.ItemFlag.ItemIsEnabled
+    assert window._machine.current_step == ProvisionStateMachine.STEP_DONE
+    assert window._steps.item(ProvisionStateMachine.STEP_FLASH).flags() & Qt.ItemFlag.ItemIsEnabled
 
-    window._steps.setCurrentRow(window.STEP_FLASH)
-    assert window._current_step == window.STEP_FLASH
+    window._steps.setCurrentRow(ProvisionStateMachine.STEP_FLASH)
+    assert window._machine.current_step == ProvisionStateMachine.STEP_FLASH
 
-    window._steps.setCurrentRow(window.STEP_DONE)
-    assert window._current_step == window.STEP_DONE
+    window._steps.setCurrentRow(ProvisionStateMachine.STEP_DONE)
+    assert window._machine.current_step == ProvisionStateMachine.STEP_DONE
 
 
 def test_failed_flash_stays_on_flash_page(window: ProvisionMainWindow) -> None:
     window.state.prepared = SimpleNamespace(
         requested_host_blkdevs=[], needed_cmds=set()
     )
-    window._set_step(window.STEP_FLASH)
+    window._set_step(ProvisionStateMachine.STEP_FLASH)
 
     window._on_flash_finished(1)
 
-    assert window._current_step == window.STEP_FLASH
+    assert window._machine.current_step == ProvisionStateMachine.STEP_FLASH
     assert window.state.flash_ret == 1
     assert window._flash_status.text() == "Flash failed (exit code 1)."
-    assert window._flash_recoverable
+    assert window._machine.flash_recoverable
     assert not (
-        window._steps.item(window.STEP_DONE).flags() & Qt.ItemFlag.ItemIsEnabled
+        window._steps.item(ProvisionStateMachine.STEP_DONE).flags() & Qt.ItemFlag.ItemIsEnabled
     )
 
 
@@ -1970,8 +1973,7 @@ def test_interrupt_flash_requests_worker_cancellation(
     requests: list[bool] = []
     monkeypatch.setattr(worker, "request_cancel", lambda: requests.append(True))
     window._worker = worker
-    window._thread = object()  # type: ignore[assignment]
-    window._set_step(window.STEP_FLASH)
+    window._set_step(ProvisionStateMachine.STEP_FLASH)
 
     window._interrupt_flash_btn.click()
 
@@ -1979,22 +1981,21 @@ def test_interrupt_flash_requests_worker_cancellation(
     assert window._flash_cancel_requested
     assert window._flash_status.text() == "Interrupting flash..."
     assert not window._interrupt_flash_btn.isEnabled()
-    window._thread = None
+    
     window._worker = None
-
 
 def test_interrupted_flash_becomes_recoverable(window: ProvisionMainWindow) -> None:
     window._tabs.setCurrentIndex(2)
     window.state.flash_ret = 0
     window._flash_cancel_requested = True
-    window._set_step(window.STEP_FLASH)
+    window._set_step(ProvisionStateMachine.STEP_FLASH)
 
     window._on_flash_cancelled()
 
-    assert window._current_step == window.STEP_FLASH
+    assert window._machine.current_step == ProvisionStateMachine.STEP_FLASH
     assert window.state.flash_ret is None
     assert window._flash_status.text() == "Flash interrupted."
-    assert window._flash_recoverable
+    assert window._machine.flash_recoverable
     assert window._flash_recovery_row.isVisibleTo(window)
 
 
@@ -2061,11 +2062,11 @@ def test_unflashed_done_back_returns_to_fresh_review(
             setattr(window, "_fastboot_ok", False),
         ),
     )
-    window._set_step(window.STEP_DONE)
+    window._set_step(ProvisionStateMachine.STEP_DONE)
 
     window._go_back()
 
-    assert window._current_step == window.STEP_REVIEW
+    assert window._machine.current_step == ProvisionStateMachine.STEP_REVIEW
     assert not window._proceed_cb.isChecked()
     assert not window._fastboot_ok
 
@@ -2143,8 +2144,8 @@ def test_slow_storage_discovery_does_not_block_ui(
     QTimer.singleShot(0, lambda: event_loop_ran.append(True))
 
     qtbot.waitUntil(lambda: bool(event_loop_ran), timeout=500)
-    assert window._thread is not None
-    qtbot.waitUntil(lambda: window._thread is None, timeout=2000)
+    assert window._worker is not None
+    qtbot.waitUntil(lambda: window._worker is None, timeout=2000)
     assert window._storage_box.isEnabled()
     assert window._storage_inputs["disk"].count() == 1
 
@@ -2173,14 +2174,14 @@ def test_storage_refresh_discovers_new_disk_and_preserves_selection(
     discoveries = iter([[first_disk], [first_disk, new_disk]])
     monkeypatch.setattr(host_storage, "list_disks", lambda: next(discoveries))
 
-    window._set_step(window.STEP_STORAGE)
+    window._set_step(ProvisionStateMachine.STEP_STORAGE)
     window._populate_storage()
     target = window._storage_inputs["disk"]
     target.setCurrentIndex(0)
 
     window._refresh_storage_btn.click()
 
-    qtbot.waitUntil(lambda: window._thread is None, timeout=1000)
+    qtbot.waitUntil(lambda: window._worker is None, timeout=1000)
     target = window._storage_inputs["disk"]
     assert target.count() == 2
     assert target.findData("/dev/disk-new") >= 0

@@ -96,7 +96,7 @@ class _QtConsoleStream(io.TextIOBase):
         self._local = threading.local()
 
     @property
-    def encoding(self) -> str:
+    def encoding(self) -> str:  # type: ignore[override]
         return "utf-8"
 
     def isatty(self) -> bool:

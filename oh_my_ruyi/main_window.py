@@ -20,20 +20,18 @@ from PySide6.QtCore import (
     QDir,
     QEvent,
     QProcess,
+    QThread,
     QProcessEnvironment,
-    Signal,
     QTimer,
     Qt,
     QUrl,
 )
-from PySide6.QtGui import QBrush, QColor, QDesktopServices, QPalette
+from PySide6.QtGui import QBrush, QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
-    QDialog,
-    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QGroupBox,
@@ -46,7 +44,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -63,7 +60,7 @@ from PySide6.QtWidgets import (
 from . import first_use, host_storage, repo_manager, ruyi_facade, version_manager
 from .about_tab import AboutTab
 from .first_use import FirstUseDialog
-from .i18n import apply_qprocess_locale, _, translate_widget_tree
+from .i18n import _, apply_qprocess_locale, translate_widget_tree
 from .qt_logger import LogEmitter, QtRuyiLogger
 from .repo_manager_tab import RepoManagementTab
 from .rich_output import (
@@ -73,6 +70,13 @@ from .rich_output import (
     strip_terminal_controls,
 )
 from .state import WizardState
+from .state_machine import ProvisionStateMachine
+from .view_models import ActionButtonsViewModel
+from .styles import build_stylesheet, resolve_theme_colors
+from .views.version_dialogs import (
+    VersionDownloadDialog as _VersionDownloadDialog,
+    VersionTableItem as _VersionTableItem,
+)
 from .workers import (
     FlashWorker,
     RepoInitWorker,
@@ -84,7 +88,6 @@ from .workers import (
     VersionDeactivationWorker,
     VersionDeleteWorker,
     VersionDownloadWorker,
-    run_worker_in_thread,
 )
 
 FASTBOOT_PROGRAM = "fastboot"
@@ -96,192 +99,8 @@ def _message_box(method, parent, title: str, message: str, *args):
     return method(parent, _(title), _(message), *args)
 
 
-class _VersionTableItem(QTableWidgetItem):
-    """Sort version cells by their semantic components instead of text."""
-
-    def __init__(self, version: str) -> None:
-        super().__init__(version)
-        self._sort_key = version_manager.version_sort_key(version)
-
-    def __lt__(self, other: QTableWidgetItem) -> bool:
-        if isinstance(other, _VersionTableItem):
-            return self._sort_key < other._sort_key
-        return super().__lt__(other)
-
-
-class _VersionDownloadDialog(QDialog):
-    """Select a release URL, then show that download's progress in place."""
-
-    download_requested = Signal(str)
-    cancel_requested = Signal()
-
-    def __init__(
-        self,
-        release: version_manager.RuyiRelease,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(_("Download ruyi {version}", version=release.version))
-        self.setModal(True)
-        self.setMinimumWidth(560)
-        self._downloading = False
-        self._cancelling = False
-
-        layout = QVBoxLayout(self)
-        prompt = QLabel("Select a download URL:")
-        self._url_combo = QComboBox()
-        self._url_combo.setAccessibleName("Ruyi download URL")
-        self._url_combo.addItems(release.download_urls)
-        self._url_combo.currentTextChanged.connect(self._url_combo.setToolTip)
-        self._url_combo.setToolTip(self._url_combo.currentText())
-        prompt.setBuddy(self._url_combo)
-        layout.addWidget(prompt)
-        layout.addWidget(self._url_combo)
-
-        self._progress = QProgressBar()
-        self._progress.setVisible(False)
-        self._status = QLabel("")
-        self._status.setWordWrap(True)
-        self._output = RichTextView()
-        self._output.setMaximumHeight(100)
-        self._output.hide()
-        layout.addWidget(self._progress)
-        layout.addWidget(self._status)
-        layout.addWidget(self._output)
-
-        self._buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
-        self._download_button = self._buttons.addButton(
-            "Download",
-            QDialogButtonBox.ButtonRole.AcceptRole,
-        )
-        self._cancel_button = self._buttons.button(
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        self._download_button.clicked.connect(self._request_download)
-        self._buttons.rejected.connect(self.reject)
-        layout.addWidget(self._buttons)
-        translate_widget_tree(self)
-
-    def _request_download(self) -> None:
-        url = self._url_combo.currentText()
-        if self._downloading or not url:
-            return
-        self._downloading = True
-        self._url_combo.setEnabled(False)
-        self._download_button.setEnabled(False)
-        self._cancel_button.setEnabled(True)
-        self._progress.setRange(0, 100)
-        self._progress.setValue(0)
-        self._progress.setFormat(_("Connecting..."))
-        self._progress.setVisible(True)
-        self._output.clear()
-        self._output.hide()
-        self._status.setText(_("Downloading the selected ruyi release..."))
-        self._status.setToolTip(url)
-        self._set_status_kind(None)
-        self.download_requested.emit(url)
-
-    def update_progress(self, downloaded: int, total: int) -> None:
-        if total > 0:
-            percent = min(100, downloaded * 100 // total)
-            self._progress.setRange(0, 100)
-            self._progress.setValue(percent)
-            self._progress.setFormat(
-                _(
-                    "%p% ({downloaded} / {total})",
-                    downloaded=self._format_bytes(downloaded),
-                    total=self._format_bytes(total),
-                )
-            )
-        else:
-            self._progress.setRange(0, 100)
-            self._progress.setValue(0)
-            self._progress.setFormat(
-                _("{size} downloaded", size=self._format_bytes(downloaded))
-            )
-
-    def show_failure(self, message: str) -> None:
-        self._downloading = False
-        self._cancelling = False
-        self._url_combo.setEnabled(True)
-        self._download_button.setText(_("Retry"))
-        self._download_button.setEnabled(True)
-        self._cancel_button.setEnabled(True)
-        self._progress.setRange(0, 100)
-        self._progress.setValue(0)
-        self._progress.setFormat(_("Download failed"))
-        self._status.setText(_("Download failed. See output below."))
-        self._status.setToolTip("")
-        self._output.append_plain_status(message)
-        self._output.show()
-        self._set_status_kind("error")
-
-    def complete(self) -> None:
-        self._downloading = False
-        self._cancelling = False
-        self.accept()
-
-    def complete_cancellation(self) -> None:
-        self._downloading = False
-        self._cancelling = False
-        super().reject()
-
-    def reject(self) -> None:
-        if self._downloading:
-            self._request_cancel()
-            return
-        super().reject()
-
-    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
-        if self._downloading:
-            self._request_cancel()
-            event.accept()
-            return
-        super().closeEvent(event)
-
-    def _request_cancel(self) -> None:
-        if self._cancelling:
-            return
-        self._cancelling = True
-        self._cancel_button.setEnabled(False)
-        self._progress.setRange(0, 100)
-        self._progress.setValue(0)
-        self._progress.setFormat(_("Cancelling..."))
-        self._status.setText(_("Stopping the download and removing temporary data..."))
-        self._set_status_kind(None)
-        self.cancel_requested.emit()
-        super().reject()
-
-    def _set_status_kind(self, kind: str | None) -> None:
-        self._status.setText(_(self._status.text()))
-        self._status.setProperty("statusKind", kind or "")
-        self._status.style().unpolish(self._status)
-        self._status.style().polish(self._status)
-
-    @staticmethod
-    def _format_bytes(size: int) -> str:
-        value = float(size)
-        for unit in ("B", "KiB", "MiB", "GiB"):
-            if value < 1024 or unit == "GiB":
-                return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-            value /= 1024
-        raise AssertionError("unreachable")
-
-
 class ProvisionMainWindow(QMainWindow):
     """One-screen GUI for the device provisioning flow."""
-
-    STEP_WELCOME = 0
-    STEP_DEVICE = 1
-    STEP_VARIANT = 2
-    STEP_COMBO = 3
-    STEP_VERSIONS = 4
-    STEP_PACKAGES = 5
-    STEP_DOWNLOAD = 6
-    STEP_STORAGE = 7
-    STEP_REVIEW = 8
-    STEP_FLASH = 9
-    STEP_DONE = 10
 
     STEP_TITLES = [
         "Ready",
@@ -318,9 +137,15 @@ class ProvisionMainWindow(QMainWindow):
         self.resize(1060, 720)
 
         self.state = WizardState(config=config, emitter=emitter)
+        self._machine = ProvisionStateMachine(self.state, self._on_machine_step_changed)
+        self._buttons_vm = ActionButtonsViewModel(self._machine, self._is_busy)
         self._logger = logger
-        self._worker = None
-        self._thread = None
+        from .workers import _BaseWorker
+
+        self._worker: _BaseWorker | None = None
+        from .worker_manager import WorkerTaskRunner
+
+        self._runner = WorkerTaskRunner(self)
         self._download_process: QProcess | None = None
         self._fastboot_process: QProcess | None = None
         self._fastboot_output = bytearray()
@@ -330,13 +155,8 @@ class ProvisionMainWindow(QMainWindow):
         self._fastboot_timer.setInterval(10_000)
         self._fastboot_timer.timeout.connect(self._on_fastboot_timeout)
         self._download_cancelled = False
-        self._download_recoverable = False
-        self._flash_recoverable = False
         self._flash_cancel_requested = False
         self._applying_styles = False
-        self._current_step = self.STEP_WELCOME
-        self._download_ok = False
-        self._versions_visited = False
         self._pm_versions_directory = (
             version_manager.versions_dir()
             if versions_directory is None
@@ -371,8 +191,8 @@ class ProvisionMainWindow(QMainWindow):
         )
         self._pm_catalog_releases: list[version_manager.RuyiRelease] = []
         self._pm_custom_releases: list[version_manager.RuyiRelease] = []
-        self._pm_worker = None
-        self._pm_thread = None
+        self._pm_worker: _BaseWorker | None = None
+        self._pm_runner = WorkerTaskRunner(self)
         self._pm_operation = ""
         self._pm_download_dialog: _VersionDownloadDialog | None = None
         self._pm_error_output = ""
@@ -396,9 +216,11 @@ class ProvisionMainWindow(QMainWindow):
         self._first_use_activated = False
         self._pm_first_run_check_pending = auto_start and not self._first_use_active
 
-        self._device_choices = {}
-        self._variant_choices = {}
-        self._combo_choices = {}
+        from typing import Any
+
+        self._device_choices: dict[str, Any] = {}
+        self._variant_choices: dict[str, Any] = {}
+        self._combo_choices: dict[str, Any] = {}
         self._version_combos: list[QComboBox] = []
         self._storage_inputs: dict[str, QComboBox] = {}
         self._storage_mount_warnings: dict[str, QLabel] = {}
@@ -408,7 +230,7 @@ class ProvisionMainWindow(QMainWindow):
         self._build_ui()
         translate_widget_tree(self)
         self._connect_logs()
-        self._set_step(self.STEP_WELCOME)
+        self._set_step(self._machine.STEP_WELCOME)
         if self._first_use_active:
             QTimer.singleShot(0, self._open_first_use_setup)
         if auto_start:
@@ -435,7 +257,7 @@ class ProvisionMainWindow(QMainWindow):
             event.accept()
             return
 
-        if self._thread is not None:
+        if self._worker is not None:
             _message_box(
                 QMessageBox.warning,
                 self,
@@ -445,7 +267,7 @@ class ProvisionMainWindow(QMainWindow):
             event.ignore()
             return
 
-        if self._pm_thread is not None:
+        if self._pm_worker is not None:
             _message_box(
                 QMessageBox.warning,
                 self,
@@ -697,7 +519,7 @@ class ProvisionMainWindow(QMainWindow):
     def _start_first_use_download(self) -> None:
         release = self._first_use_release
         dialog = self._first_use_dialog
-        if release is None or dialog is None or self._pm_thread is not None:
+        if release is None or dialog is None or self._pm_worker is not None:
             return
         self._first_use_operation = "download"
         self._first_use_action = ""
@@ -859,7 +681,7 @@ class ProvisionMainWindow(QMainWindow):
         self._refresh_buttons()
 
     def _on_managed_repo_updated(self, repo_id: str) -> None:
-        if repo_id != repo_manager.DEFAULT_REPO_ID or self._thread is not None:
+        if repo_id != repo_manager.DEFAULT_REPO_ID or self._worker is not None:
             return
         first_use_update = (
             self._first_use_active and self._first_use_operation == "repository"
@@ -882,19 +704,11 @@ class ProvisionMainWindow(QMainWindow):
 
     def _reset_provision_for_repo_change(self) -> None:
         self.state.mr = None
-        self.state.device = None
-        self.state.variant = None
-        self.state.combo = None
-        self.state.pkg_atoms = []
-        self.state.prepared = None
-        self.state.host_blkdev_map = {}
-        self.state.host_blkdev_fingerprints = {}
-        self.state.flash_ret = None
-        self.state.postinst_msg = None
-        self._versions_visited = False
-        self._download_ok = False
-        self._download_recoverable = False
-        self._flash_recoverable = False
+        self.state.reset_from_category()
+        self._machine.versions_visited = False
+        self._machine.download_ok = False
+        self._machine.download_recoverable = False
+        self._machine.flash_recoverable = False
         self._device_list.clear()
         self._device_details.clear()
         self._device_details.hide()
@@ -921,7 +735,7 @@ class ProvisionMainWindow(QMainWindow):
         self._device_status.setText(device_message)
         self._set_status_kind(self._device_status, "warning")
         self._refresh_summary()
-        self._set_step(self.STEP_WELCOME)
+        self._set_step(self._machine.STEP_WELCOME)
 
     def _on_repo_manager_busy_changed(self, _busy: bool) -> None:
         self._refresh_buttons()
@@ -1345,123 +1159,17 @@ class ProvisionMainWindow(QMainWindow):
         if self._applying_styles:
             return
         self._applying_styles = True
-        colors = self._theme_colors()
         try:
-            self.setStyleSheet(
-                f"""
-            QMainWindow {{ background: {colors["window"]}; color: {colors["window_text"]}; }}
-            QWidget {{ color: {colors["window_text"]}; }}
-            QListWidget#stepList {{
-                background: {colors["base"]};
-                color: {colors["text"]};
-                border: 1px solid {colors["border"]};
-                border-radius: 6px;
-                padding: 4px;
-            }}
-            QListWidget#stepList::item {{ min-height: 34px; padding: 3px 7px; }}
-            QListWidget#stepList::item:selected {{
-                background: {colors["highlight"]};
-                color: {colors["highlighted_text"]};
-            }}
-            QListWidget#stepList::item:disabled {{ color: {colors["disabled_text"]}; }}
-            QGroupBox {{
-                background: {colors["base"]};
-                color: {colors["text"]};
-                border: 1px solid {colors["border"]};
-                border-radius: 6px;
-                margin-top: 9px;
-                padding: 8px;
-            }}
-            QGroupBox::title {{ subcontrol-origin: margin; left: 8px; padding: 0 4px; }}
-            QGroupBox QLabel {{ color: {colors["text"]}; }}
-            QLabel#pageTitle {{ font-size: 17px; color: {colors["window_text"]}; }}
-            QLabel#postInstallMessage {{
-                padding: 8px;
-                background: {colors["base"]};
-                color: {colors["text"]};
-                border: 1px solid {colors["border"]};
-            }}
-            QLabel[statusKind="success"] {{ color: {colors["success"]}; font-weight: 600; }}
-            QLabel[statusKind="warning"] {{ color: {colors["warning"]}; font-weight: 600; }}
-            QLabel[statusKind="error"] {{ color: {colors["error"]}; font-weight: 600; }}
-            QPushButton {{
-                min-height: 30px;
-                padding: 2px 10px;
-                background: {colors["button"]};
-                color: {colors["button_text"]};
-                border: 1px solid {colors["border"]};
-                border-radius: 4px;
-            }}
-            QPushButton#primaryButton {{
-                background: {colors["highlight"]};
-                color: {colors["highlighted_text"]};
-                border-color: {colors["highlight"]};
-            }}
-            QPushButton:disabled {{
-                background: {colors["disabled_button"]};
-                color: {colors["disabled_text"]};
-            }}
-            QPushButton#primaryButton:disabled {{
-                background: {colors["disabled_button"]};
-                color: {colors["disabled_text"]};
-                border-color: {colors["border"]};
-            }}
-            QLineEdit, QComboBox, QListWidget, QTableWidget, QPlainTextEdit, QTextEdit {{
-                background: {colors["base"]};
-                color: {colors["text"]};
-                selection-background-color: {colors["highlight"]};
-                selection-color: {colors["highlighted_text"]};
-                border: 1px solid {colors["border"]};
-            }}
-            QLineEdit:disabled, QComboBox:disabled, QListWidget:disabled,
-            QTableWidget:disabled,
-            QPlainTextEdit:disabled, QTextEdit:disabled, QCheckBox:disabled {{
-                background: {colors["disabled_button"]};
-                color: {colors["disabled_text"]};
-            }}
-            QLabel#versionStatus {{
-                padding: 0;
-                background: transparent;
-                color: {colors["window_text"]};
-                border: none;
-                font-weight: normal;
-            }}
-            QLabel#versionStatus[statusKind="error"] {{ color: {colors["error"]}; font-weight: normal; }}
-            """
-            )
+            app = QApplication.instance()
+            palette = app.palette() if app is not None else self.palette()
+            self.setStyleSheet(build_stylesheet(palette))
         finally:
             self._applying_styles = False
 
     def _theme_colors(self) -> dict[str, str]:
         app = QApplication.instance()
         palette = app.palette() if app is not None else self.palette()
-
-        def color(role: QPalette.ColorRole) -> str:
-            return palette.color(role).name()
-
-        is_dark = palette.color(QPalette.ColorRole.Window).lightness() < 128
-        return {
-            "window": color(QPalette.ColorRole.Window),
-            "window_text": color(QPalette.ColorRole.WindowText),
-            "base": color(QPalette.ColorRole.Base),
-            "text": color(QPalette.ColorRole.Text),
-            "button": color(QPalette.ColorRole.Button),
-            "button_text": color(QPalette.ColorRole.ButtonText),
-            "border": color(QPalette.ColorRole.Mid),
-            "highlight": color(QPalette.ColorRole.Highlight),
-            "highlighted_text": color(QPalette.ColorRole.HighlightedText),
-            "disabled_button": palette.color(
-                QPalette.ColorGroup.Disabled,
-                QPalette.ColorRole.Button,
-            ).name(),
-            "disabled_text": palette.color(
-                QPalette.ColorGroup.Disabled,
-                QPalette.ColorRole.Text,
-            ).name(),
-            "success": "#7ee787" if is_dark else "#1a7f37",
-            "warning": "#f2cc60" if is_dark else "#9a6700",
-            "error": "#ff7b72" if is_dark else "#cf222e",
-        }
+        return resolve_theme_colors(palette)
 
     def changeEvent(self, event) -> None:  # noqa: N802 - Qt override
         super().changeEvent(event)
@@ -1495,7 +1203,7 @@ class ProvisionMainWindow(QMainWindow):
     # -------------------------------------------------------------- actions
 
     def _refresh_pm_catalog(self) -> None:
-        if self._pm_thread is not None or self._repo_manager_tab.is_busy:
+        if self._pm_worker is not None or self._repo_manager_tab.is_busy:
             return
         self._pm_operation = "refresh"
         self._logger.set_terminal_target("pm")
@@ -1504,7 +1212,7 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_worker = VersionCatalogWorker()
         self._pm_worker.finished.connect(self._on_pm_catalog_ready)
         self._pm_worker.failed.connect(self._on_pm_worker_failed)
-        self._pm_thread = run_worker_in_thread(self._pm_worker)
+        self._pm_runner.run_worker(self._pm_worker)
         self._refresh_pm_buttons()
 
     def _download_selected_pm_version(self) -> None:
@@ -1517,7 +1225,7 @@ class ProvisionMainWindow(QMainWindow):
         release: version_manager.RuyiRelease,
     ) -> None:
         if (
-            self._pm_thread is not None
+            self._pm_worker is not None
             or self._pm_externally_managed
             or self._pm_download_dialog is not None
         ):
@@ -1541,7 +1249,7 @@ class ProvisionMainWindow(QMainWindow):
     ) -> None:
         if (
             dialog is not self._pm_download_dialog
-            or self._pm_thread is not None
+            or self._pm_worker is not None
             or self._pm_externally_managed
         ):
             return
@@ -1560,11 +1268,11 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_worker.finished.connect(self._on_pm_download_finished)
         self._pm_worker.cancelled.connect(self._on_pm_download_cancelled)
         self._pm_worker.failed.connect(self._on_pm_download_failed)
-        self._pm_thread = run_worker_in_thread(self._pm_worker)
+        self._pm_runner.run_worker(self._pm_worker)
         self._refresh_pm_buttons()
 
     def _clear_pm_download_dialog(self, dialog: _VersionDownloadDialog) -> None:
-        if self._pm_download_dialog is dialog and self._pm_thread is None:
+        if self._pm_download_dialog is dialog and self._pm_worker is None:
             self._pm_download_dialog = None
             if (
                 self._first_use_active
@@ -1595,12 +1303,12 @@ class ProvisionMainWindow(QMainWindow):
             self._pm_download_dialog = None
 
     def _refresh_pm_local_versions(self) -> None:
-        if self._pm_thread is not None:
+        if self._pm_worker is not None:
             return
         self._refresh_pm_versions()
 
     def _remove_selected_pm_download_url(self) -> None:
-        if self._pm_thread is not None or self._pm_externally_managed:
+        if self._pm_worker is not None or self._pm_externally_managed:
             return
         release = self._selected_pm_release()
         custom_release = next(
@@ -1620,7 +1328,7 @@ class ProvisionMainWindow(QMainWindow):
         self._refresh_pm_versions()
 
     def _add_pm_download_url(self) -> None:
-        if self._pm_thread is not None:
+        if self._pm_worker is not None:
             return
         url, ok = QInputDialog.getText(
             self,
@@ -1665,7 +1373,7 @@ class ProvisionMainWindow(QMainWindow):
 
     def _activate_selected_pm_version(self) -> None:
         installed = self._selected_pm_installed_version()
-        if installed is None or self._pm_thread is not None:
+        if installed is None or self._pm_worker is not None:
             return
 
         self._start_pm_activation(installed)
@@ -1674,7 +1382,7 @@ class ProvisionMainWindow(QMainWindow):
         self,
         installed: version_manager.InstalledVersion,
     ) -> bool:
-        if self._pm_thread is not None:
+        if self._pm_worker is not None:
             return False
         binary = installed.path
 
@@ -1724,13 +1432,13 @@ class ProvisionMainWindow(QMainWindow):
             self._on_pm_password_requested,
             Qt.ConnectionType.BlockingQueuedConnection,
         )
-        self._pm_thread = run_worker_in_thread(self._pm_worker)
+        self._pm_runner.run_worker(self._pm_worker)
         self._refresh_pm_buttons()
         return True
 
     def _toggle_selected_pm_version_activation(self) -> None:
         installed = self._selected_pm_installed_version()
-        if installed is None or self._pm_thread is not None:
+        if installed is None or self._pm_worker is not None:
             return
         active = version_manager.read_activation_state(
             self._pm_activation_link,
@@ -1743,7 +1451,7 @@ class ProvisionMainWindow(QMainWindow):
 
     def _delete_selected_pm_version(self) -> None:
         installed = self._selected_pm_installed_version()
-        if installed is None or self._pm_thread is not None:
+        if installed is None or self._pm_worker is not None:
             return
         answer = _message_box(
             QMessageBox.question,
@@ -1772,11 +1480,11 @@ class ProvisionMainWindow(QMainWindow):
         )
         self._pm_worker.finished.connect(self._on_pm_delete_finished)
         self._pm_worker.failed.connect(self._on_pm_worker_failed)
-        self._pm_thread = run_worker_in_thread(self._pm_worker)
+        self._pm_runner.run_worker(self._pm_worker)
         self._refresh_pm_buttons()
 
     def _deactivate_selected_pm_version(self) -> None:
-        if self._pm_thread is not None:
+        if self._pm_worker is not None:
             return
         installed = self._selected_pm_installed_version()
         if installed is None:
@@ -1817,12 +1525,12 @@ class ProvisionMainWindow(QMainWindow):
             self._on_pm_password_requested,
             Qt.ConnectionType.BlockingQueuedConnection,
         )
-        self._pm_thread = run_worker_in_thread(self._pm_worker)
+        self._pm_runner.run_worker(self._pm_worker)
         self._refresh_pm_buttons()
 
     def _browse_selected_pm_version(self) -> None:
         installed = self._selected_pm_installed_version()
-        if installed is None or self._pm_thread is not None:
+        if installed is None or self._pm_worker is not None:
             return
         if not self._reveal_pm_file(installed.path):
             _message_box(
@@ -1868,14 +1576,14 @@ class ProvisionMainWindow(QMainWindow):
         return QDesktopServices.openUrl(QUrl.fromLocalFile(os.fspath(path.parent)))
 
     def _start_repo_init(self) -> None:
-        if self._repo_manager_tab.is_busy or self._thread is not None:
+        if self._repo_manager_tab.is_busy or self._worker is not None:
             return
         self._logger.set_terminal_target("welcome")
         self._next_btn.setEnabled(False)
         self._worker = RepoInitWorker(self.state.config)
         self._worker.finished.connect(self._on_repo_ready)
         self._worker.failed.connect(self._on_worker_failed)
-        self._thread = run_worker_in_thread(self._worker)
+        self._runner.run_worker(self._worker)
         self._refresh_buttons()
 
     def _start_repo_sync(self) -> None:
@@ -1890,19 +1598,19 @@ class ProvisionMainWindow(QMainWindow):
         self._worker = RepoSyncWorker(self.state.config, self.state.mr)
         self._worker.finished.connect(self._on_repo_synced)
         self._worker.failed.connect(self._on_worker_failed)
-        self._thread = run_worker_in_thread(self._worker)
+        self._runner.run_worker(self._worker)
         self._refresh_buttons()
 
     def _start_download(self) -> None:
         assert self.state.mr is not None
-        self._download_ok = False
+        self._machine.download_ok = False
         self._download_cancelled = False
-        self._download_recoverable = False
+        self._machine.download_recoverable = False
         self._download_log.clear()
         self._logger.set_terminal_target("download")
         self._download_status.setText(_("Downloading and installing packages..."))
         self._download_status.setToolTip("")
-        self._set_step(self.STEP_DOWNLOAD)
+        self._set_step(self._machine.STEP_DOWNLOAD)
         self._download_process = QProcess(self)
         self._download_process.setProgram(sys.executable)
         self._download_process.setArguments(
@@ -1930,14 +1638,14 @@ class ProvisionMainWindow(QMainWindow):
         if storage_error is not None:
             self._populate_storage()
             self._storage_error.setText(storage_error)
-            self._set_step(self.STEP_STORAGE)
+            self._set_step(self._machine.STEP_STORAGE)
             return
-        self._flash_recoverable = False
+        self._machine.flash_recoverable = False
         self._flash_cancel_requested = False
         self._flash_log.clear()
         self._logger.set_terminal_target("flash")
         self._flash_status.setText(_("Flashing the device..."))
-        self._set_step(self.STEP_FLASH)
+        self._set_step(self._machine.STEP_FLASH)
         self._worker = FlashWorker(
             self.state.config,
             self.state.prepared,
@@ -1960,7 +1668,7 @@ class ProvisionMainWindow(QMainWindow):
             Qt.ConnectionType.BlockingQueuedConnection,
         )
         self._worker.process_output.connect(self._on_flash_process_output)
-        self._thread = run_worker_in_thread(self._worker)
+        self._runner.run_worker(self._worker)
         self._refresh_buttons()
 
     def _check_fastboot_devices(self) -> None:
@@ -1995,14 +1703,14 @@ class ProvisionMainWindow(QMainWindow):
         self._refresh_buttons()
 
     def _on_fastboot_output(self, process: QProcess) -> None:
-        if process is not self._fastboot_process:
+        if process != self._fastboot_process:
             return
         data = bytes(process.readAllStandardOutput())
         self._fastboot_output.extend(data)
         self._fastboot_log.feed_bytes(data)
 
     def _on_fastboot_finished(self, process: QProcess, ret: int) -> None:
-        if process is not self._fastboot_process:
+        if process != self._fastboot_process:
             process.deleteLater()
             return
         self._on_fastboot_output(process)
@@ -2032,7 +1740,7 @@ class ProvisionMainWindow(QMainWindow):
         process: QProcess,
         error: QProcess.ProcessError,
     ) -> None:
-        if process is not self._fastboot_process:
+        if process != self._fastboot_process:
             return
         if error == QProcess.ProcessError.FailedToStart:
             self._complete_fastboot_check(
@@ -2054,7 +1762,7 @@ class ProvisionMainWindow(QMainWindow):
         ok: bool,
         message: str,
     ) -> None:
-        if process is not self._fastboot_process:
+        if process != self._fastboot_process:
             return
         self._fastboot_timer.stop()
         self._on_fastboot_output(process)
@@ -2102,10 +1810,10 @@ class ProvisionMainWindow(QMainWindow):
         self.state.prepared = None
         self.state.host_blkdev_map = {}
         self.state.host_blkdev_fingerprints = {}
-        self._download_ok = False
-        self._download_recoverable = False
+        self._machine.download_ok = False
+        self._machine.download_recoverable = False
         if (
-            self._versions_visited
+            self._machine.versions_visited
             and self.state.mr is not None
             and self.state.combo is not None
         ):
@@ -2113,26 +1821,19 @@ class ProvisionMainWindow(QMainWindow):
                 self.state.combo.entity
             )
             self._populate_versions()
-            self._set_step(self.STEP_VERSIONS)
+            self._set_step(self._machine.STEP_VERSIONS)
         else:
             self._populate_packages()
-            self._set_step(self.STEP_PACKAGES)
+            self._set_step(self._machine.STEP_PACKAGES)
 
     def _restart_flow(self) -> None:
-        self._download_ok = False
-        self._download_recoverable = False
-        self._flash_recoverable = False
-        self._versions_visited = False
-        self.state.device = None
-        self.state.variant = None
-        self.state.combo = None
-        self.state.pkg_atoms = []
-        self.state.prepared = None
-        self.state.host_blkdev_map = {}
-        self.state.host_blkdev_fingerprints = {}
-        self.state.flash_ret = None
+        self._machine.download_ok = False
+        self._machine.download_recoverable = False
+        self._machine.flash_recoverable = False
+        self._machine.versions_visited = False
+        self.state.reset_from_category()
         self._populate_devices()
-        self._set_step(self.STEP_DEVICE)
+        self._set_step(self._machine.STEP_DEVICE)
 
     def _terminate_download_process(self) -> None:
         proc = self._download_process
@@ -2347,7 +2048,7 @@ class ProvisionMainWindow(QMainWindow):
         self._maybe_start_pm_telemetry()
 
     def _maybe_start_pm_telemetry(self) -> None:
-        if self._pm_telemetry_installation.exists() or self._pm_thread is not None:
+        if self._pm_telemetry_installation.exists() or self._pm_worker is not None:
             return
         state = version_manager.read_activation_state(
             self._pm_activation_link,
@@ -2366,7 +2067,7 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_worker.finished.connect(self._on_pm_telemetry_finished)
         self._pm_worker.failed.connect(self._on_pm_worker_failed)
         self._pm_worker.process_output.connect(self._on_pm_telemetry_output)
-        self._pm_thread = run_worker_in_thread(self._pm_worker)
+        self._pm_runner.run_worker(self._pm_worker)
         self._refresh_pm_buttons()
 
     def _on_pm_telemetry_output(self, text: str) -> None:
@@ -2405,13 +2106,13 @@ class ProvisionMainWindow(QMainWindow):
         self._set_status_kind(self._welcome_status, "success")
         self._cleanup_thread()
         self._populate_devices()
-        self._set_step(self.STEP_DEVICE)
+        self._set_step(self._machine.STEP_DEVICE)
 
     def _on_repo_synced(self, mr) -> None:
         self.state.mr = mr
         self._cleanup_thread()
         self._populate_devices()
-        self._set_step(self.STEP_DEVICE)
+        self._set_step(self._machine.STEP_DEVICE)
 
     def _on_download_output(self) -> None:
         if self._download_process is None:
@@ -2424,8 +2125,8 @@ class ProvisionMainWindow(QMainWindow):
         self._download_status.setText(
             _("Download process error: {name}.", name=error.name)
         )
-        self._download_ok = False
-        self._download_recoverable = True
+        self._machine.download_ok = False
+        self._machine.download_recoverable = True
         if (
             error == QProcess.ProcessError.FailedToStart
             and self._download_process is not None
@@ -2445,8 +2146,8 @@ class ProvisionMainWindow(QMainWindow):
         if self._download_cancelled:
             self._download_status.setText(_("Download cancelled."))
             self._download_status.setToolTip("")
-            self._download_ok = False
-            self._download_recoverable = True
+            self._machine.download_ok = False
+            self._machine.download_recoverable = True
             self._refresh_buttons()
             return
         self._on_download_finished(ret)
@@ -2455,8 +2156,8 @@ class ProvisionMainWindow(QMainWindow):
         if ret != 0:
             self._download_status.setText(_("Download failed. See output."))
             self._download_status.setToolTip(_("Exit code: {code}", code=ret))
-            self._download_ok = False
-            self._download_recoverable = True
+            self._machine.download_ok = False
+            self._machine.download_recoverable = True
             self._refresh_buttons()
             return
         try:
@@ -2472,22 +2173,22 @@ class ProvisionMainWindow(QMainWindow):
             )
             self._download_status.setText(_("Preparing flash failed. See output."))
             self._download_status.setToolTip("")
-            self._download_ok = False
-            self._download_recoverable = True
+            self._machine.download_ok = False
+            self._machine.download_recoverable = True
         else:
             self._download_status.setText(_("Download complete."))
             self._download_status.setToolTip("")
-            self._download_ok = True
-            self._download_recoverable = False
+            self._machine.download_ok = True
+            self._machine.download_recoverable = False
         self._refresh_buttons()
-        if self._download_ok:
+        if self._machine.download_ok:
             self._advance_after_download()
 
     def _on_flash_finished(self, ret: int) -> None:
         self._flash_log.feed_bytes(b"", final=True)
         self._flash_cancel_requested = False
         self.state.flash_ret = ret
-        self._flash_recoverable = ret != 0
+        self._machine.flash_recoverable = ret != 0
         self._flash_status.setText(
             _("Flash complete.")
             if ret == 0
@@ -2496,7 +2197,7 @@ class ProvisionMainWindow(QMainWindow):
         self._cleanup_thread()
         if ret == 0:
             self._populate_done()
-            self._set_step(self.STEP_DONE)
+            self._set_step(self._machine.STEP_DONE)
         else:
             self._refresh_buttons()
 
@@ -2504,24 +2205,24 @@ class ProvisionMainWindow(QMainWindow):
         self._flash_log.feed_bytes(b"", final=True)
         self._flash_cancel_requested = False
         self.state.flash_ret = None
-        self._flash_recoverable = True
+        self._machine.flash_recoverable = True
         self._flash_status.setText(_("Flash interrupted."))
         self._cleanup_thread()
         self._refresh_buttons()
 
     def _on_worker_failed(self, msg: str) -> None:
         _message_box(QMessageBox.critical, self, "Operation failed", msg)
-        if self._current_step == self.STEP_FLASH:
+        if self._machine.current_step == self._machine.STEP_FLASH:
             self._flash_log.feed_bytes(b"", final=True)
-        if self._current_step == self.STEP_DOWNLOAD:
+        if self._machine.current_step == self._machine.STEP_DOWNLOAD:
             self._download_status.setText(_("Operation failed."))
             self._download_status.setToolTip("")
-        elif self._current_step == self.STEP_FLASH:
+        elif self._machine.current_step == self._machine.STEP_FLASH:
             self._flash_cancel_requested = False
             self._flash_status.setText(_("Operation failed."))
             self._flash_status.setToolTip("")
-            self._flash_recoverable = True
-        elif self._current_step == self.STEP_DEVICE:
+            self._machine.flash_recoverable = True
+        elif self._machine.current_step == self._machine.STEP_DEVICE:
             self._device_status.setText(_("Metadata operation failed."))
             self._device_status.setToolTip("")
         else:
@@ -2582,19 +2283,11 @@ class ProvisionMainWindow(QMainWindow):
         self._append_terminal_output(target, text)
 
     def _cleanup_thread(self) -> None:
-        if self._thread is not None:
-            self._thread.quit()
-            self._thread.wait()
-            self._thread.deleteLater()
-        self._thread = None
+        self._runner.safe_stop_all()
         self._worker = None
 
     def _cleanup_pm_thread(self) -> None:
-        if self._pm_thread is not None:
-            self._pm_thread.quit()
-            self._pm_thread.wait()
-            self._pm_thread.deleteLater()
-        self._pm_thread = None
+        self._pm_runner.safe_stop_all()
         self._pm_worker = None
         self._pm_operation = ""
 
@@ -2703,8 +2396,8 @@ class ProvisionMainWindow(QMainWindow):
             installed,
             active,
             previous_installed_version,
-            latest_version=(latest_release.version if latest_downloaded else None),
-            latest_channel=(latest_release.channel if latest_downloaded else None),
+            latest_version=(latest_release.version if latest_release else None),
+            latest_channel=(latest_release.channel if latest_release else None),
             active_is_latest=active_is_latest,
         )
         self._refresh_pm_path_status(active)
@@ -2924,13 +2617,13 @@ class ProvisionMainWindow(QMainWindow):
         repo_tab = getattr(self, "_repo_manager_tab", None)
         if repo_tab is not None:
             repo_tab.set_external_busy(
-                self._thread is not None
-                or self._pm_thread is not None
+                self._worker is not None
+                or self._pm_worker is not None
                 or self._download_process is not None
                 or self._fastboot_process is not None
             )
         repo_busy = bool(repo_tab is not None and self._repo_manager_tab.is_busy)
-        busy = self._pm_thread is not None or repo_busy
+        busy = self._pm_worker is not None or repo_busy
         controls_enabled = not busy and not self._pm_externally_managed
         release = self._selected_pm_release()
         installed = self._selected_pm_installed_version()
@@ -2986,11 +2679,11 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_browse_btn.setEnabled(controls_enabled and installed is not None)
 
     def _set_step(self, step: int) -> None:
-        if self._current_step == self.STEP_REVIEW and step != self.STEP_REVIEW:
+        if self._machine.current_step == self._machine.STEP_REVIEW and step != self._machine.STEP_REVIEW:
             self._stop_fastboot_check()
-        if step < self._current_step:
-            self._invalidate_downstream(step)
-        self._current_step = step
+        self._machine.set_step(step)
+
+    def _on_machine_step_changed(self, step: int) -> None:
         self._steps.blockSignals(True)
         self._steps.setCurrentRow(step)
         self._steps.blockSignals(False)
@@ -3004,132 +2697,71 @@ class ProvisionMainWindow(QMainWindow):
         for row in range(self._steps.count()):
             item = self._steps.item(row)
             flags = Qt.ItemFlag.ItemIsSelectable
-            if row == self._current_step or (
+            if row == self._machine.current_step or (
                 (
-                    row == self._current_step + 1
-                    or row < self._current_step
+                    row == self._machine.current_step + 1
+                    or row < self._machine.current_step
                     or self._is_completed_flash_history_step(row)
                 )
-                and self._can_open_step(row)
+                and self._machine.can_open_step(row)
             ):
                 flags |= Qt.ItemFlag.ItemIsEnabled
             item.setFlags(flags)
 
     def _focus_current_step(self) -> None:
         target: QWidget | None = None
-        if self._current_step == self.STEP_DEVICE:
+        if self._machine.current_step == self._machine.STEP_DEVICE:
             target = self._device_list
-        elif self._current_step == self.STEP_VARIANT:
+        elif self._machine.current_step == self._machine.STEP_VARIANT:
             target = self._variant_list
-        elif self._current_step == self.STEP_COMBO:
+        elif self._machine.current_step == self._machine.STEP_COMBO:
             target = self._combo_list
-        elif self._current_step == self.STEP_VERSIONS and self._version_combos:
+        elif (
+            self._machine.current_step == self._machine.STEP_VERSIONS
+            and self._version_combos
+        ):
             target = self._version_combos[0]
-        elif self._current_step == self.STEP_PACKAGES:
+        elif self._machine.current_step == self._machine.STEP_PACKAGES:
             target = self._packages_list
-        elif self._current_step == self.STEP_DOWNLOAD:
+        elif self._machine.current_step == self._machine.STEP_DOWNLOAD:
             target = self._download_log
-        elif self._current_step == self.STEP_STORAGE and self._storage_inputs:
+        elif (
+            self._machine.current_step == self._machine.STEP_STORAGE
+            and self._storage_inputs
+        ):
             target = next(iter(self._storage_inputs.values()))
-        elif self._current_step == self.STEP_REVIEW:
+        elif self._machine.current_step == self._machine.STEP_REVIEW:
             target = self._proceed_cb
-        elif self._current_step == self.STEP_FLASH:
+        elif self._machine.current_step == self._machine.STEP_FLASH:
             target = self._flash_log
-        elif self._current_step == self.STEP_DONE:
+        elif self._machine.current_step == self._machine.STEP_DONE:
             target = self._next_btn
         if target is not None and target.isEnabled():
             target.setFocus(Qt.FocusReason.OtherFocusReason)
 
-    def _invalidate_downstream(self, dest_step: int) -> None:
-        if dest_step < self.STEP_FLASH:
-            self.state.flash_ret = None
-            self._flash_recoverable = False
-        if dest_step < self.STEP_STORAGE:
-            self.state.host_blkdev_map = {}
-            self.state.host_blkdev_fingerprints = {}
-        if dest_step < self.STEP_DOWNLOAD:
-            self.state.prepared = None
-            self._download_ok = False
-            self._download_recoverable = False
-        if dest_step < self.STEP_VERSIONS:
-            # Re-derive pkg_atoms from the combo, discarding any version
-            # customization the user may have done.
-            if self.state.combo is not None:
-                self.state.pkg_atoms = ruyi_facade.combo_package_atoms(
-                    self.state.combo.entity
-                )
-            self._versions_visited = False
-        if dest_step < self.STEP_COMBO:
-            self.state.combo = None
-            self.state.pkg_atoms = []
-            self._versions_visited = False
-        if dest_step < self.STEP_VARIANT:
-            self.state.variant = None
-        if dest_step < self.STEP_DEVICE:
-            self.state.device = None
-
     def _on_step_clicked(self, row: int) -> None:
-        if row < 0 or row == self._current_step:
+        if row < 0 or row == self._machine.current_step:
             return
         if self._is_busy() or (
-            row > self._current_step
-            and row != self._current_step + 1
+            row > self._machine.current_step
+            and row != self._machine.current_step + 1
             and not self._is_completed_flash_history_step(row)
         ):
-            self._steps.setCurrentRow(self._current_step)
+            self._steps.setCurrentRow(self._machine.current_step)
             return
-        if self._can_open_step(row):
-            if row == self.STEP_REVIEW:
+        if self._machine.can_open_step(row):
+            if row == self._machine.STEP_REVIEW:
                 self._populate_review()
             self._set_step(row)
         else:
-            self._steps.setCurrentRow(self._current_step)
+            self._steps.setCurrentRow(self._machine.current_step)
 
-    def _can_open_step(self, step: int) -> bool:
-        if step == self.STEP_WELCOME:
-            return True
-        if step == self.STEP_DEVICE:
-            return self.state.mr is not None
-        if step == self.STEP_VARIANT:
-            return self.state.device is not None
-        if step == self.STEP_COMBO:
-            return self.state.variant is not None
-        if step == self.STEP_VERSIONS:
-            # Only allow jumping here if the TUI would actually have offered
-            # customization; otherwise the page is unpopulated and would be
-            # blank/confusing.
-            return (
-                self.state.combo is not None
-                and bool(self.state.pkg_atoms)
-                and self.state.mr is not None
-                and ruyi_facade.is_package_version_customization_possible(
-                    self.state.config,
-                    self.state.mr,
-                    self.state.pkg_atoms,
-                )
-            )
-        if step == self.STEP_PACKAGES:
-            return self.state.combo is not None
-        if step == self.STEP_DOWNLOAD:
-            return bool(self.state.pkg_atoms)
-        if step == self.STEP_STORAGE:
-            return (
-                self._download_ok
-                and self.state.prepared is not None
-                and bool(self.state.prepared.requested_host_blkdevs)
-            )
-        if step == self.STEP_REVIEW:
-            return self._download_ok and self.state.prepared is not None
-        if step == self.STEP_FLASH:
-            return self.state.flash_ret is not None
-        if step == self.STEP_DONE:
-            return self.state.flash_ret == 0 or (
-                self.state.combo is not None and not self.state.pkg_atoms
-            )
-        return False
 
     def _is_completed_flash_history_step(self, step: int) -> bool:
-        return self.state.flash_ret == 0 and step in {self.STEP_FLASH, self.STEP_DONE}
+        return self.state.flash_ret == 0 and step in {
+            self._machine.STEP_FLASH,
+            self._machine.STEP_DONE,
+        }
 
     def _review_complete_if_possible(self) -> bool:
         if self.state.prepared is None:
@@ -3169,55 +2801,63 @@ class ProvisionMainWindow(QMainWindow):
         repo_tab = getattr(self, "_repo_manager_tab", None)
         if repo_tab is not None:
             repo_tab.set_external_busy(
-                self._thread is not None
-                or self._pm_thread is not None
+                self._worker is not None
+                or self._pm_worker is not None
                 or self._download_process is not None
                 or self._fastboot_process is not None
             )
         busy = self._is_busy()
         self._back_btn.setEnabled(
             not busy
-            and self._current_step
-            not in {self.STEP_WELCOME, self.STEP_DOWNLOAD, self.STEP_FLASH}
+            and self._machine.current_step
+            not in {
+                self._machine.STEP_WELCOME,
+                self._machine.STEP_DOWNLOAD,
+                self._machine.STEP_FLASH,
+            }
         )
         self._next_btn.setEnabled(not busy and self._can_go_next())
-        if self._current_step == self.STEP_DONE:
+        if self._machine.current_step == self._machine.STEP_DONE:
             self._next_btn.setText(_("Close"))
-        elif self._current_step == self.STEP_PACKAGES:
+        elif self._machine.current_step == self._machine.STEP_PACKAGES:
             self._next_btn.setText(_("Proceed"))
         else:
             self._next_btn.setText(_("Next"))
         self._update_repo_btn.setEnabled(not busy and self.state.mr is not None)
         self._cancel_download_btn.setVisible(
-            self._current_step == self.STEP_DOWNLOAD
+            self._machine.current_step == self._machine.STEP_DOWNLOAD
             and self._download_process is not None
         )
         self._cancel_download_btn.setEnabled(self._download_process is not None)
         self._download_recovery_row.setVisible(
-            self._current_step == self.STEP_DOWNLOAD
-            and self._download_recoverable
+            self._machine.current_step == self._machine.STEP_DOWNLOAD
+            and self._machine.download_recoverable
             and not busy
         )
         self._resume_download_btn.setEnabled(bool(self.state.pkg_atoms))
         self._reselect_versions_btn.setEnabled(self.state.combo is not None)
         self._reselect_versions_btn.setText(
-            _("Reselect versions" if self._versions_visited else "Reselect packages")
+            _(
+                "Reselect versions"
+                if self._machine.versions_visited
+                else "Reselect packages"
+            )
         )
         self._restart_btn.setEnabled(self.state.mr is not None)
         self._refresh_storage_btn.setEnabled(
             not busy
-            and self._current_step == self.STEP_STORAGE
+            and self._machine.current_step == self._machine.STEP_STORAGE
             and self.state.prepared is not None
         )
         flash_recoverable = (
-            self._current_step == self.STEP_FLASH
-            and self._flash_recoverable
+            self._machine.current_step == self._machine.STEP_FLASH
+            and self._machine.flash_recoverable
             and not busy
         )
         flash_running = (
-            self._current_step == self.STEP_FLASH
+            self._machine.current_step == self._machine.STEP_FLASH
             and isinstance(self._worker, FlashWorker)
-            and self._thread is not None
+            and self._worker is not None
         )
         self._interrupt_flash_btn.setVisible(flash_running)
         self._interrupt_flash_btn.setEnabled(
@@ -3247,18 +2887,18 @@ class ProvisionMainWindow(QMainWindow):
         if self.state.prepared is None or self._is_busy():
             return
         self.state.flash_ret = None
-        self._flash_recoverable = False
+        self._machine.flash_recoverable = False
         if self.state.prepared.requested_host_blkdevs:
             self._populate_storage()
-            self._set_step(self.STEP_STORAGE)
+            self._set_step(self._machine.STEP_STORAGE)
         else:
             self._populate_review()
-            self._set_step(self.STEP_REVIEW)
+            self._set_step(self._machine.STEP_REVIEW)
 
     def _is_busy(self) -> bool:
         repo_tab = getattr(self, "_repo_manager_tab", None)
         return (
-            self._thread is not None
+            self._worker is not None
             or self._download_process is not None
             or self._fastboot_process is not None
             or bool(repo_tab is not None and repo_tab.is_busy)
@@ -3273,54 +2913,54 @@ class ProvisionMainWindow(QMainWindow):
         assert self.state.prepared is not None
         if self.state.prepared.requested_host_blkdevs:
             self._populate_storage()
-            self._set_step(self.STEP_STORAGE)
+            self._set_step(self._machine.STEP_STORAGE)
         else:
             self.state.host_blkdev_map = {}
             self.state.host_blkdev_fingerprints = {}
             self._populate_review()
-            self._set_step(self.STEP_REVIEW)
+            self._set_step(self._machine.STEP_REVIEW)
 
     def _can_go_next(self) -> bool:
-        step = self._current_step
-        if step == self.STEP_WELCOME:
+        step = self._machine.current_step
+        if step == self._machine.STEP_WELCOME:
             return self.state.mr is not None
-        if step == self.STEP_DEVICE:
+        if step == self._machine.STEP_DEVICE:
             item = self._device_list.currentItem()
             if item is None:
                 return False
             choice_id = item.data(Qt.ItemDataRole.UserRole)
             return choice_id in self._device_choices
-        if step == self.STEP_VARIANT:
+        if step == self._machine.STEP_VARIANT:
             return self._variant_list.currentItem() is not None
-        if step == self.STEP_COMBO:
+        if step == self._machine.STEP_COMBO:
             return self._combo_list.currentItem() is not None
-        if step == self.STEP_VERSIONS:
+        if step == self._machine.STEP_VERSIONS:
             return True
-        if step == self.STEP_PACKAGES:
+        if step == self._machine.STEP_PACKAGES:
             return True
-        if step == self.STEP_DOWNLOAD:
-            return self._download_ok
-        if step == self.STEP_STORAGE:
+        if step == self._machine.STEP_DOWNLOAD:
+            return self._machine.download_ok
+        if step == self._machine.STEP_STORAGE:
             return self._storage_complete()
-        if step == self.STEP_REVIEW:
+        if step == self._machine.STEP_REVIEW:
             return self._review_complete()
-        if step == self.STEP_FLASH:
+        if step == self._machine.STEP_FLASH:
             return self.state.flash_ret == 0
         return True
 
     def _go_next(self) -> None:
-        step = self._current_step
-        if step == self.STEP_WELCOME:
-            self._set_step(self.STEP_DEVICE)
-        elif step == self.STEP_DEVICE:
+        step = self._machine.current_step
+        if step == self._machine.STEP_WELCOME:
+            self._set_step(self._machine.STEP_DEVICE)
+        elif step == self._machine.STEP_DEVICE:
             self._choose_device()
             self._populate_variants()
-            self._set_step(self.STEP_VARIANT)
-        elif step == self.STEP_VARIANT:
+            self._set_step(self._machine.STEP_VARIANT)
+        elif step == self._machine.STEP_VARIANT:
             self._choose_variant()
             self._populate_combos()
-            self._set_step(self.STEP_COMBO)
-        elif step == self.STEP_COMBO:
+            self._set_step(self._machine.STEP_COMBO)
+        elif step == self._machine.STEP_COMBO:
             self._choose_combo()
             if ruyi_facade.is_package_version_customization_possible(
                 self.state.config,
@@ -3328,62 +2968,66 @@ class ProvisionMainWindow(QMainWindow):
                 self.state.pkg_atoms,
             ):
                 self._populate_versions()
-                self._versions_visited = True
-                self._set_step(self.STEP_VERSIONS)
+                self._machine.versions_visited = True
+                self._set_step(self._machine.STEP_VERSIONS)
             else:
                 self._populate_packages()
-                self._set_step(self.STEP_PACKAGES)
-        elif step == self.STEP_VERSIONS:
+                self._set_step(self._machine.STEP_PACKAGES)
+        elif step == self._machine.STEP_VERSIONS:
             self._commit_versions()
             self._populate_packages()
-            self._set_step(self.STEP_PACKAGES)
-        elif step == self.STEP_PACKAGES:
+            self._set_step(self._machine.STEP_PACKAGES)
+        elif step == self._machine.STEP_PACKAGES:
             if not self.state.pkg_atoms:
                 self._populate_done()
-                self._set_step(self.STEP_DONE)
+                self._set_step(self._machine.STEP_DONE)
             else:
                 self._start_download()
-        elif step == self.STEP_DOWNLOAD:
+        elif step == self._machine.STEP_DOWNLOAD:
             self._advance_after_download()
-        elif step == self.STEP_STORAGE:
+        elif step == self._machine.STEP_STORAGE:
             if self._commit_storage():
                 self._populate_review()
-                self._set_step(self.STEP_REVIEW)
-        elif step == self.STEP_REVIEW:
+                self._set_step(self._machine.STEP_REVIEW)
+        elif step == self._machine.STEP_REVIEW:
             self._start_flash()
-        elif step == self.STEP_FLASH:
+        elif step == self._machine.STEP_FLASH:
             self._populate_done()
-            self._set_step(self.STEP_DONE)
-        elif step == self.STEP_DONE:
+            self._set_step(self._machine.STEP_DONE)
+        elif step == self._machine.STEP_DONE:
             self.close()
 
     def _go_back(self) -> None:
-        step = self._current_step
-        if step == self.STEP_DEVICE:
-            prev = self.STEP_WELCOME
-        elif step == self.STEP_VARIANT:
-            prev = self.STEP_DEVICE
-        elif step == self.STEP_COMBO:
-            prev = self.STEP_VARIANT
-        elif step == self.STEP_VERSIONS:
-            prev = self.STEP_COMBO
-        elif step == self.STEP_PACKAGES:
-            prev = self.STEP_VERSIONS if self._versions_visited else self.STEP_COMBO
-        elif step == self.STEP_STORAGE:
-            prev = self.STEP_DOWNLOAD
-        elif step == self.STEP_REVIEW:
+        step = self._machine.current_step
+        if step == self._machine.STEP_DEVICE:
+            prev = self._machine.STEP_WELCOME
+        elif step == self._machine.STEP_VARIANT:
+            prev = self._machine.STEP_DEVICE
+        elif step == self._machine.STEP_COMBO:
+            prev = self._machine.STEP_VARIANT
+        elif step == self._machine.STEP_VERSIONS:
+            prev = self._machine.STEP_COMBO
+        elif step == self._machine.STEP_PACKAGES:
+            prev = (
+                self._machine.STEP_VERSIONS
+                if self._machine.versions_visited
+                else self._machine.STEP_COMBO
+            )
+        elif step == self._machine.STEP_STORAGE:
+            prev = self._machine.STEP_DOWNLOAD
+        elif step == self._machine.STEP_REVIEW:
             if self.state.prepared and self.state.prepared.requested_host_blkdevs:
-                prev = self.STEP_STORAGE
+                prev = self._machine.STEP_STORAGE
             else:
-                prev = self.STEP_DOWNLOAD
-        elif step == self.STEP_DONE:
+                prev = self._machine.STEP_DOWNLOAD
+        elif step == self._machine.STEP_DONE:
             if self.state.flash_ret is not None:
-                prev = self.STEP_FLASH
+                prev = self._machine.STEP_FLASH
             elif self.state.pkg_atoms and self.state.prepared is not None:
                 self._populate_review()
-                prev = self.STEP_REVIEW
+                prev = self._machine.STEP_REVIEW
             else:
-                prev = self.STEP_PACKAGES
+                prev = self._machine.STEP_PACKAGES
         else:
             prev = None
         if prev is not None:
@@ -3677,10 +3321,10 @@ class ProvisionMainWindow(QMainWindow):
         self._worker = StorageDiscoveryWorker()
         self._worker.finished.connect(self._on_storage_disks_ready)
         self._worker.failed.connect(self._on_storage_discovery_failed)
-        self._thread = run_worker_in_thread(self._worker)
+        self._runner.run_worker(self._worker)
         self._refresh_buttons()
 
-    def _on_storage_disks_ready(self, disks: object) -> None:
+    def _on_storage_disks_ready(self, disks: list) -> None:
         selected_paths = self._storage_discovery_paths
         self._storage_discovery_paths = {}
         self._cleanup_thread()

@@ -237,7 +237,7 @@ class AboutTab(QWidget):
         self._path_probe_timer.start()
 
     def _on_path_probe_finished(self, process: QProcess, code: int, _status) -> None:
-        if process is not self._path_process:
+        if process != self._path_process:
             return
         self._path_probe_timer.stop()
         output = bytes(process.readAllStandardOutput()).decode(errors="replace").strip()
@@ -250,7 +250,7 @@ class AboutTab(QWidget):
     def _on_path_probe_error(
         self, process: QProcess, error: QProcess.ProcessError
     ) -> None:
-        if process is not self._path_process:
+        if process != self._path_process:
             return
         if error == QProcess.ProcessError.FailedToStart:
             self._on_path_probe_finished(process, 1, error)

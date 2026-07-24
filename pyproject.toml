@@ -46,3 +46,7 @@ packages = ["oh_my_ruyi"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+ignore_missing_imports = true
+strict_optional = true

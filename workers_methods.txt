@@ -1,0 +1,43 @@
+class _BaseWorker(QObject):
+    def _fail(self, exc: Exception) -> None:
+class RepoInitWorker(_BaseWorker):
+    def __init__(self, config: GlobalConfig) -> None:
+    def run(self) -> None:
+class RepoSyncWorker(_BaseWorker):
+    def __init__(self, config: GlobalConfig, mr: CompositeRepo) -> None:
+    def run(self) -> None:
+class StorageDiscoveryWorker(_BaseWorker):
+    def run(self) -> None:
+class VersionCatalogWorker(_BaseWorker):
+    def run(self) -> None:
+class VersionDownloadWorker(_BaseWorker):
+    def __init__(
+    def request_cancel(self) -> None:
+    def _close_response(response: BinaryIO) -> None:
+    def _set_response(self, response: BinaryIO | None) -> None:
+    def run(self) -> None:
+class VersionActivationWorker(_BaseWorker):
+    def __init__(
+    def run(self) -> None:
+    def _activate_with_sudo(self) -> version_manager.ActivationResult:
+class VersionDeleteWorker(_BaseWorker):
+    def __init__(self, binary: Path, directory: Path, link: Path) -> None:
+    def run(self) -> None:
+class VersionDeactivationWorker(_BaseWorker):
+    def __init__(self, directory: Path, link: Path) -> None:
+    def run(self) -> None:
+    def _deactivate_with_sudo(self) -> version_manager.ActivationState:
+class TelemetrySetupWorker(_BaseWorker):
+    def __init__(
+    def run(self) -> None:
+class FlashWorker(_BaseWorker):
+    def __init__(
+    def run(self) -> None:
+    def request_cancel(self) -> None:
+    def _run_with_gui_prompts(self) -> int:
+    def _call_subprocess(self, argv: list[str]) -> int:
+    def _wait_for_process(self, proc: subprocess.Popen[bytes]) -> int:
+    def _signal_process_group(
+    def _validate_dd_target(self, argv: list[str]) -> None:
+    def _argv_with_gui_progress(argv: list[str]) -> list[str]:
+    def _emit_process_output(

@@ -179,16 +179,16 @@ def edit_default_repo(
         "repo.remote": DEFAULT_REPO_REMOTE,
         "repo.branch": DEFAULT_REPO_BRANCH,
     }
-    changes = tuple(
+    resolved_changes = tuple(
         (key, old, None if old is None and new == effective_defaults[key] else new)
         for key, old, new in changes
     )
-    if not any(old != new for _key, old, new in changes):
+    if not any(old != new for _key, old, new in resolved_changes):
         return False
 
     try:
         with ConfigEditor(Path(path)) as editor:
-            for key, old, new in changes:
+            for key, old, new in resolved_changes:
                 if old == new:
                     continue
                 if new is None:

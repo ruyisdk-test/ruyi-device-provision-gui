@@ -574,7 +574,7 @@ class RepoManagementTab(QWidget):
             row = self.configured_table.rowCount()
             self.configured_table.insertRow(row)
             source = repo_manager.source_label(repo)
-            values = (
+            configured_values = (
                 repo.id,
                 repo.name,
                 source,
@@ -582,7 +582,7 @@ class RepoManagementTab(QWidget):
                 str(repo.priority),
                 _("Active" if repo.active else "Disabled"),
             )
-            for column, value in enumerate(values):
+            for column, value in enumerate(configured_values):
                 item = QTableWidgetItem(value)
                 item.setToolTip(value)
                 if column == 0:
@@ -593,7 +593,7 @@ class RepoManagementTab(QWidget):
                     self.configured_table.item(row, column).setToolTip(
                         _(
                             "{value}\nThe default ruyisdk repository cannot be removed.",
-                            value=values[column],
+                            value=configured_values[column],
                         )
                     )
 
@@ -895,7 +895,8 @@ class RepoManagementTab(QWidget):
             self._update_dialog.append_output_bytes(data)
 
     def _on_process_finished(self, process: QProcess, code: int, _status) -> None:
-        if process is not self._process:
+        if process != self._process:
+            process.deleteLater()
             return
         self._kill_timer.stop()
         self._read_process_output()
@@ -919,7 +920,7 @@ class RepoManagementTab(QWidget):
     def _on_process_error(
         self, process: QProcess, error: QProcess.ProcessError
     ) -> None:
-        if process is not self._process:
+        if process != self._process:
             return
         if error == QProcess.ProcessError.FailedToStart:
             self._finish_update(
@@ -1058,7 +1059,7 @@ class RepoManagementTab(QWidget):
         code: int,
         _status,
     ) -> None:
-        if process is not self._news_process:
+        if process != self._news_process:
             return
         self._read_news_output(process, dialog)
         dialog.append_output_bytes(b"", final=True)
@@ -1084,7 +1085,7 @@ class RepoManagementTab(QWidget):
         dialog: _RepoUpdateDialog,
         error: QProcess.ProcessError,
     ) -> None:
-        if process is not self._news_process:
+        if process != self._news_process:
             return
         if error == QProcess.ProcessError.FailedToStart:
             dialog.append_output(f"\n{_('Failed to start the news operation.')}\n")

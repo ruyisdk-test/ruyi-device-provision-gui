@@ -135,11 +135,11 @@ def _route_git_progress(logger: RuyiLogger | None):
         original_git_indicator = git_utils.RemoteGitProgressIndicator
         original_repo_indicator = repo_module.RemoteGitProgressIndicator
 
-        class LoggerGitProgressIndicator(original_git_indicator):
+        class LoggerGitProgressIndicator(git_utils.RemoteGitProgressIndicator):  # type: ignore[misc]
             def __init__(self) -> None:
                 super().__init__()
                 self.p = Progress(
-                    console=logger.log_console,
+                    console=getattr(logger, "log_console", None),
                     transient=False,
                     redirect_stdout=False,
                     redirect_stderr=False,

@@ -131,9 +131,29 @@ def locale_environment() -> dict[str, str]:
 
 def localize_config(config):
     """Align repository message selection with the active ruyi translation."""
-    config.__dict__["_lang_code"] = active_locale() or "en_US"
-    config.__dict__.pop("babel_locale", None)
+    if hasattr(config, "_lang_code"):
+        setattr(config, "_lang_code", active_locale() or "en_US")
+    else:
+        config.__dict__["_lang_code"] = active_locale() or "en_US"
+    if hasattr(config, "babel_locale"):
+        delattr(config, "babel_locale")
+    elif "babel_locale" in getattr(config, "__dict__", {}):
+        config.__dict__.pop("babel_locale", None)
     return config
+
+
+def format_exception_message(exc: Exception) -> str:
+    """Format an exception into a human-readable, localized error message."""
+    exc_type = type(exc).__name__
+    if isinstance(exc, PermissionError):
+        return f"{exc_type}: {_('Permission denied: {detail}', detail=str(exc))}"
+    if isinstance(exc, FileNotFoundError):
+        return (
+            f"{exc_type}: {_('File or directory not found: {detail}', detail=str(exc))}"
+        )
+    if isinstance(exc, TimeoutError):
+        return f"{exc_type}: {_('Operation timed out: {detail}', detail=str(exc))}"
+    return f"{exc_type}: {_(str(exc))}"
 
 
 def apply_qprocess_locale(environment) -> None:
@@ -174,6 +194,8 @@ def translate_widget_tree(root) -> None:
 
     widgets = [root, *root.findChildren(QWidget)]
     for widget in widgets:
+        if widget.property("isDynamic"):
+            continue
         if widget.windowTitle():
             widget.setWindowTitle(_(widget.windowTitle()))
         if widget.toolTip():
@@ -209,6 +231,7 @@ def translate_widget_tree(root) -> None:
 
 __all__ = [
     "active_locale",
+    "format_exception_message",
     "initialize",
     "install_qt_translations",
     "apply_qprocess_locale",

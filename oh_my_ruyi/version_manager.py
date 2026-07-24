@@ -398,21 +398,25 @@ def binary_architecture(path: Path) -> str:
         return "unknown"
 
     if len(header) >= 20 and header.startswith(b"\x7fELF"):
-        byte_order = {1: "little", 2: "big"}.get(header[5])
-        if byte_order is None:
+        byte_order_val = {1: "little", 2: "big"}.get(header[5])
+        if byte_order_val is None:
             return "unknown"
+        from typing import cast, Literal
+        byte_order = cast(Literal["little", "big"], byte_order_val)
         machine = int.from_bytes(header[18:20], byte_order)
         if machine == 243:
             return "riscv64" if header[4] == 2 else "riscv32"
         return _ELF_ARCHITECTURES.get(machine, "unknown")
 
-    mach_byte_order = {
+    mach_byte_order_val = {
         b"\xfe\xed\xfa\xce": "big",
         b"\xce\xfa\xed\xfe": "little",
         b"\xfe\xed\xfa\xcf": "big",
         b"\xcf\xfa\xed\xfe": "little",
     }.get(header[:4])
-    if mach_byte_order is not None and len(header) >= 8:
+    if mach_byte_order_val is not None and len(header) >= 8:
+        from typing import cast, Literal
+        mach_byte_order = cast(Literal["little", "big"], mach_byte_order_val)
         cpu_type = int.from_bytes(header[4:8], mach_byte_order)
         return {
             7: "x86",
@@ -803,22 +807,24 @@ def _run_interactive_telemetry_status(
     timeout: float,
 ) -> str:
     """Give ruyi a TTY so its normal first-run OOBE executes."""
-    master_fd, slave_fd = pty.openpty()
+    master_fd = -1
+    slave_fd = -1
     process: subprocess.Popen[bytes] | None = None
     chunks: list[bytes] = []
-    env = os.environ.copy()
-    env.update(locale_environment())
-    env.pop("NO_COLOR", None)
-    env.update(
-        {
-            "COLORTERM": "truecolor",
-            "COLUMNS": "120",
-            "FORCE_COLOR": "1",
-            "TERM": "xterm-256color",
-            "TTY_COMPATIBLE": "1",
-        }
-    )
     try:
+        master_fd, slave_fd = pty.openpty()
+        env = os.environ.copy()
+        env.update(locale_environment())
+        env.pop("NO_COLOR", None)
+        env.update(
+            {
+                "COLORTERM": "truecolor",
+                "COLUMNS": "120",
+                "FORCE_COLOR": "1",
+                "TERM": "xterm-256color",
+                "TTY_COMPATIBLE": "1",
+            }
+        )
         process = subprocess.Popen(
             [os.fspath(binary), "telemetry", "status"],
             stdin=slave_fd,
@@ -864,7 +870,8 @@ def _run_interactive_telemetry_status(
             )
         return output
     finally:
-        os.close(master_fd)
+        if master_fd >= 0:
+            os.close(master_fd)
         if slave_fd >= 0:
             os.close(slave_fd)
         if process is not None and process.poll() is None:
@@ -904,7 +911,7 @@ def _main(argv: list[str] | None = None) -> int:
             backup_unmanaged=args.backup_unmanaged,
         )
         payload = {
-            "target": os.fspath(result.state.target),
+            "target": os.fspath(result.state.target) if result.state.target else None,
             "version": result.state.version,
             "backup_path": (
                 os.fspath(result.backup_path) if result.backup_path else None

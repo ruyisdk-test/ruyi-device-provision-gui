@@ -249,12 +249,15 @@ def ansi_to_html(
 class RichTextView(QTextBrowser):
     """Read-only Qt view that appends Rich HTML and streamed ANSI output."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, max_blocks: int = 2000) -> None:
         super().__init__(parent)
         self.setReadOnly(True)
         self.setAcceptRichText(True)
         self.setOpenExternalLinks(True)
         self.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        if max_blocks > 0:
+            self.document().setMaximumBlockCount(max_blocks)
+        self._max_blocks = max_blocks
         self._utf8_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self._segments: list[tuple[str, str]] = []
         self._terminal_current = ""

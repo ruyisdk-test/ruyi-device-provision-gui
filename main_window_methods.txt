@@ -1,0 +1,158 @@
+class ProvisionMainWindow(QMainWindow):
+    def __init__(
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+    def _build_ui(self) -> None:
+    def _on_feature_tab_changed(self, index: int) -> None:
+    def _open_first_use_setup(self) -> None:
+    def _clear_first_use_dialog(self, dialog: FirstUseDialog) -> None:
+    def _exit_first_use_setup(self) -> None:
+    def _run_first_use_action(self) -> None:
+    def _skip_first_use_download(self) -> None:
+    def _first_use_catalog_ready(self) -> None:
+    def _start_first_use_download(self) -> None:
+    def _start_first_use_activation(self) -> None:
+    def _start_first_use_repository_step(self) -> None:
+    def _choose_first_use_repository(self) -> None:
+    def _on_first_use_repo_update_finished(
+    def _finish_first_use_setup(self) -> None:
+    def _refresh_about_tab(self) -> None:
+    def _on_repo_configuration_changed(self, repo_id: str) -> None:
+    def _on_managed_repo_updated(self, repo_id: str) -> None:
+    def _reset_provision_for_repo_change(self) -> None:
+    def _on_repo_manager_busy_changed(self, _busy: bool) -> None:
+    def _on_provision_repo_update_finished(self, success: bool, message: str) -> None:
+    def _build_version_manager_tab(self) -> QWidget:
+    def _build_available_versions_panel(self) -> QWidget:
+    def _build_installed_versions_panel(self) -> QWidget:
+    def _make_pm_status_label(text: str = "") -> QLabel:
+    def _configure_pm_table(
+    def _build_pages(self) -> None:
+    def _add_page(self, title: str, widgets: list[QWidget]) -> None:
+    def _make_log_view(self) -> RichTextView:
+    def _apply_styles(self) -> None:
+    def _theme_colors(self) -> dict[str, str]:
+    def changeEvent(self, event) -> None:  # noqa: N802 - Qt override
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+    def _set_status_kind(self, label: QLabel, kind: str | None) -> None:
+    def _refresh_pm_catalog(self) -> None:
+    def _download_selected_pm_version(self) -> None:
+    def _open_pm_download_dialog(
+    def _start_pm_download(
+    def _clear_pm_download_dialog(self, dialog: _VersionDownloadDialog) -> None:
+    def _cancel_pm_download(self, dialog: _VersionDownloadDialog) -> None:
+    def _refresh_pm_local_versions(self) -> None:
+    def _remove_selected_pm_download_url(self) -> None:
+    def _add_pm_download_url(self) -> None:
+    def _activate_selected_pm_version(self) -> None:
+    def _start_pm_activation(
+    def _toggle_selected_pm_version_activation(self) -> None:
+    def _delete_selected_pm_version(self) -> None:
+    def _deactivate_selected_pm_version(self) -> None:
+    def _browse_selected_pm_version(self) -> None:
+    def _reveal_pm_file(path: Path) -> bool:
+    def _start_repo_init(self) -> None:
+    def _start_repo_sync(self) -> None:
+    def _start_download(self) -> None:
+    def _start_flash(self) -> None:
+    def _check_fastboot_devices(self) -> None:
+    def _on_fastboot_output(self, process: QProcess) -> None:
+    def _on_fastboot_finished(self, process: QProcess, ret: int) -> None:
+    def _on_fastboot_error(
+    def _on_fastboot_timeout(self) -> None:
+    def _complete_fastboot_check(
+    def _stop_fastboot_check(self) -> None:
+    def _cancel_download(self) -> None:
+    def _resume_download(self) -> None:
+    def _reselect_versions(self) -> None:
+    def _restart_flow(self) -> None:
+    def _terminate_download_process(self) -> None:
+    def _on_pm_catalog_ready(self, catalog: version_manager.ReleaseCatalog) -> None:
+    def _on_pm_download_finished(self, path: Path) -> None:
+    def _on_pm_download_failed(self, msg: str) -> None:
+    def _on_pm_download_cancelled(self) -> None:
+    def _on_pm_activation_finished(
+    def _on_pm_delete_finished(
+    def _on_pm_deactivation_finished(
+    def _on_pm_telemetry_finished(
+    def _on_pm_worker_failed(self, msg: str) -> None:
+    def _on_pm_password_requested(self, prompt: str, response: dict) -> None:
+    def _run_pending_pm_first_run_check(self) -> None:
+    def _maybe_start_pm_telemetry(self) -> None:
+    def _on_pm_telemetry_output(self, text: str) -> None:
+    def _ask_for_pm_telemetry_mode(self) -> version_manager.TelemetryMode:
+    def _on_repo_ready(self, mr) -> None:
+    def _on_repo_synced(self, mr) -> None:
+    def _on_download_output(self) -> None:
+    def _on_download_process_error(self, error) -> None:
+    def _on_download_process_finished(self, ret: int, _status) -> None:
+    def _on_download_finished(self, ret: int) -> None:
+    def _on_flash_finished(self, ret: int) -> None:
+    def _on_flash_cancelled(self) -> None:
+    def _on_worker_failed(self, msg: str) -> None:
+    def _on_flash_yes_no_requested(
+    def _on_flash_password_requested(self, prompt: str, response: dict) -> None:
+    def _on_flash_process_output(self, data: bytes) -> None:
+    def _connect_logs(self) -> None:
+    def _terminal_view(self, target: str) -> RichTextView | None:
+    def _append_terminal_output(self, target: str, text: str) -> None:
+    def _on_terminal_log(self, target: str, text: str) -> None:
+    def _cleanup_thread(self) -> None:
+    def _cleanup_pm_thread(self) -> None:
+    def _cleanup_empty_first_use_data_directory(self) -> None:
+    def _selected_pm_release(self) -> version_manager.RuyiRelease | None:
+    def _selected_pm_installed_version(
+    def _refresh_pm_versions(
+    def _latest_pm_release_for_active(
+    def _pm_foreground(self, kind: str) -> QBrush:
+    def _populate_pm_available_table(
+    def _populate_pm_installed_table(
+    def _set_pm_row_foreground(
+    def _format_file_size(size: int) -> str:
+    def _align_pm_status_heights(self) -> None:
+    def _refresh_pm_path_status(
+    def _refresh_pm_buttons(self) -> None:
+    def _set_step(self, step: int) -> None:
+    def _refresh_step_items(self) -> None:
+    def _focus_current_step(self) -> None:
+    def _invalidate_downstream(self, dest_step: int) -> None:
+    def _on_step_clicked(self, row: int) -> None:
+    def _can_open_step(self, step: int) -> bool:
+    def _is_completed_flash_history_step(self, step: int) -> bool:
+    def _review_complete_if_possible(self) -> bool:
+    def _refresh_summary(self) -> None:
+    def _refresh_buttons(self) -> None:
+    def _interrupt_flash(self) -> None:
+    def _retry_flash(self) -> None:
+    def _review_flash_settings(self) -> None:
+    def _is_busy(self) -> bool:
+    def _activate_current_step(self, _item=None) -> None:
+    def _advance_after_download(self) -> None:
+    def _can_go_next(self) -> bool:
+    def _go_next(self) -> None:
+    def _go_back(self) -> None:
+    def _populate_devices(self) -> None:
+    def _choose_device(self) -> None:
+    def _populate_variants(self) -> None:
+    def _choose_variant(self) -> None:
+    def _populate_combos(self) -> None:
+    def _choose_combo(self) -> None:
+    def _populate_versions(self) -> None:
+    def _commit_versions(self) -> None:
+    def _populate_packages(self) -> None:
+    def _populate_storage(
+    def _refresh_storage_disks(self) -> None:
+    def _start_storage_discovery(
+    def _on_storage_disks_ready(self, disks: object) -> None:
+    def _on_storage_discovery_failed(self, message: str) -> None:
+    def _browse_storage(self, edit: QComboBox) -> None:
+    def _storage_path(self, edit: QComboBox) -> str:
+    def _refresh_storage_mount_warning(
+    def _on_storage_target_changed(
+    def _storage_item_data(self, edit: QComboBox, role: int) -> object | None:
+    def _refresh_storage_controls(self) -> None:
+    def _storage_complete(self) -> bool:
+    def _commit_storage(self) -> bool:
+    def _flash_storage_error(self) -> str | None:
+    def _populate_review(self) -> None:
+    def _review_complete(self) -> bool:
+    def _populate_done(self) -> None:

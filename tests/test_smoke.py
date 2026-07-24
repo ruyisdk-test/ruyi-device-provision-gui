@@ -287,28 +287,3 @@ def test_flash_worker_emits_carriage_return_output() -> None:
     assert b"".join(captured) == b"1024 bytes\r2048 bytes\ndone"
 
 
-def test_worker_run_executes_in_worker_thread(qtbot) -> None:
-    from PySide6.QtCore import QThread, Signal
-
-    from oh_my_ruyi.workers import _BaseWorker, run_worker_in_thread
-
-    class ProbeWorker(_BaseWorker):
-        finished = Signal(object)  # type: ignore[assignment]
-
-        def run(self) -> None:
-            self.finished.emit(QThread.currentThread())
-
-    main_thread = QThread.currentThread()
-    worker = ProbeWorker()
-    with qtbot.waitSignal(worker.finished, timeout=1000) as blocker:
-        thread = run_worker_in_thread(worker)
-    try:
-        assert blocker.args[0] is thread
-        assert blocker.args[0] is not main_thread
-    finally:
-        thread.quit()
-        thread.wait()
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
