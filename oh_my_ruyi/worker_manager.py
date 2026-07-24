@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import Callable, Any
 
 from PySide6.QtCore import QObject, QThread, Qt
@@ -42,7 +41,7 @@ class WorkerTaskRunner(QObject):
             worker.finished.connect(on_finished)
         if on_failed:
             worker.failed.connect(on_failed)
-        
+
         # Handle cancellation if the worker supports it (e.g., VersionDownloadWorker, FlashWorker)
         if on_cancelled and hasattr(worker, "cancelled"):
             getattr(worker, "cancelled").connect(on_cancelled)

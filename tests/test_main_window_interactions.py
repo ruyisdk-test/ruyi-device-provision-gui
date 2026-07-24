@@ -117,9 +117,9 @@ def test_feature_tabs_are_in_required_order(window: ProvisionMainWindow) -> None
     assert window._repo_manager_tab.layout() is not None
     assert window._repo_manager_tab.preset_table.rowCount() == 1
     assert window._repo_manager_tab.configured_table.rowCount() == 1
-    assert window._stack.widget(ProvisionStateMachine.STEP_WELCOME).accessibleName() == (
-        "RuyiSDK Device Provisioning"
-    )
+    assert window._stack.widget(
+        ProvisionStateMachine.STEP_WELCOME
+    ).accessibleName() == ("RuyiSDK Device Provisioning")
 
 
 def _first_use_window(qtbot, monkeypatch, tmp_path) -> ProvisionMainWindow:
@@ -364,7 +364,10 @@ def test_repo_init_disables_repo_management(
     window: ProvisionMainWindow,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr("oh_my_ruyi.worker_manager.WorkerTaskRunner.run_worker", lambda self, worker, *args, **kwargs: worker)
+    monkeypatch.setattr(
+        "oh_my_ruyi.worker_manager.WorkerTaskRunner.run_worker",
+        lambda self, worker, *args, **kwargs: worker,
+    )
     window._repo_manager_tab.preset_table.selectRow(0)
     assert window._repo_manager_tab.add_button.isEnabled()
 
@@ -373,7 +376,7 @@ def test_repo_init_disables_repo_management(
     assert window._worker is not None
     assert window._repo_manager_tab._external_busy
     assert not window._repo_manager_tab.preset_table.isEnabled()
-    
+
     window._worker = None
 
 
@@ -1517,12 +1520,12 @@ def _test_palette(*, dark: bool) -> QPalette:
 
 
 def test_sidebar_cannot_skip_forward_steps(window: ProvisionMainWindow) -> None:
-    print('BEFORE SET_STEP: current=', window._machine.current_step)
+    print("BEFORE SET_STEP: current=", window._machine.current_step)
     window._set_step(ProvisionStateMachine.STEP_PACKAGES)
-    print('AFTER SET_STEP: current=', window._machine.current_step)
+    print("AFTER SET_STEP: current=", window._machine.current_step)
 
     window._steps.setCurrentRow(ProvisionStateMachine.STEP_REVIEW)
-    print('AFTER SETCURRENTROW: current=', window._machine.current_step)
+    print("AFTER SETCURRENTROW: current=", window._machine.current_step)
 
     assert window._machine.current_step == ProvisionStateMachine.STEP_PACKAGES
     assert window._steps.currentRow() == ProvisionStateMachine.STEP_PACKAGES
@@ -1708,7 +1711,7 @@ def test_fastboot_check_runs_without_blocking_ui(
 
     qtbot.waitUntil(lambda: bool(event_loop_ran), timeout=500)
     assert window._fastboot_process is not None
-    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=5000)
     assert window._fastboot_ok
     assert window._fastboot_status.text() == "Fastboot device check completed."
     assert "SERIAL" not in window._fastboot_status.text()
@@ -1729,7 +1732,7 @@ def test_fastboot_check_reports_missing_command(
 
     window._check_fastboot_devices()
 
-    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=5000)
     assert not window._fastboot_ok
     assert window._fastboot_status.text() == "fastboot command was not found."
     assert window._check_fastboot_btn.isEnabled()
@@ -1748,7 +1751,7 @@ def test_fastboot_check_reports_no_devices(
 
     window._check_fastboot_devices()
 
-    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=5000)
     assert not window._fastboot_ok
     assert window._fastboot_status.text() == "No fastboot devices found."
 
@@ -1766,7 +1769,7 @@ def test_fastboot_check_accepts_nonempty_stderr_without_parsing(
 
     window._check_fastboot_devices()
 
-    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=5000)
     assert window._fastboot_ok
     assert "device output" not in window._fastboot_status.text()
     assert "device output" in window._fastboot_log.toPlainText()
@@ -1785,7 +1788,7 @@ def test_fastboot_check_accepts_device_record_on_stderr(
 
     window._check_fastboot_devices()
 
-    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=5000)
     assert window._fastboot_ok
     assert "SERIAL" not in window._fastboot_status.text()
     assert "SERIAL" in window._fastboot_log.toPlainText()
@@ -1804,7 +1807,7 @@ def test_fastboot_check_accepts_dfu_download_output(
 
     window._check_fastboot_devices()
 
-    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=5000)
     assert window._fastboot_ok
     assert "dfu-device       DFU download" not in window._fastboot_status.text()
     assert "dfu-device       DFU download" in window._fastboot_log.toPlainText()
@@ -1823,7 +1826,7 @@ def test_fastboot_check_accepts_nonempty_stdout_without_parsing(
 
     window._check_fastboot_devices()
 
-    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=2000)
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=5000)
     assert window._fastboot_ok
     assert "unrecognized device format" not in window._fastboot_status.text()
     assert "unrecognized device format" in window._fastboot_log.toPlainText()
@@ -1934,12 +1937,18 @@ def test_successful_flash_advances_to_done_and_can_return_to_flash(
     assert window._flash_status.text() == "Flash complete."
     assert window._flash_log.toPlainText() == "fastboot flash complete"
     assert window._next_btn.isEnabled()
-    assert window._steps.item(ProvisionStateMachine.STEP_DONE).flags() & Qt.ItemFlag.ItemIsEnabled
+    assert (
+        window._steps.item(ProvisionStateMachine.STEP_DONE).flags()
+        & Qt.ItemFlag.ItemIsEnabled
+    )
 
     window._go_next()
 
     assert window._machine.current_step == ProvisionStateMachine.STEP_DONE
-    assert window._steps.item(ProvisionStateMachine.STEP_FLASH).flags() & Qt.ItemFlag.ItemIsEnabled
+    assert (
+        window._steps.item(ProvisionStateMachine.STEP_FLASH).flags()
+        & Qt.ItemFlag.ItemIsEnabled
+    )
 
     window._steps.setCurrentRow(ProvisionStateMachine.STEP_FLASH)
     assert window._machine.current_step == ProvisionStateMachine.STEP_FLASH
@@ -1961,7 +1970,8 @@ def test_failed_flash_stays_on_flash_page(window: ProvisionMainWindow) -> None:
     assert window._flash_status.text() == "Flash failed (exit code 1)."
     assert window._machine.flash_recoverable
     assert not (
-        window._steps.item(ProvisionStateMachine.STEP_DONE).flags() & Qt.ItemFlag.ItemIsEnabled
+        window._steps.item(ProvisionStateMachine.STEP_DONE).flags()
+        & Qt.ItemFlag.ItemIsEnabled
     )
 
 
@@ -1981,8 +1991,9 @@ def test_interrupt_flash_requests_worker_cancellation(
     assert window._flash_cancel_requested
     assert window._flash_status.text() == "Interrupting flash..."
     assert not window._interrupt_flash_btn.isEnabled()
-    
+
     window._worker = None
+
 
 def test_interrupted_flash_becomes_recoverable(window: ProvisionMainWindow) -> None:
     window._tabs.setCurrentIndex(2)

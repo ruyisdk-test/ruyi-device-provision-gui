@@ -20,7 +20,6 @@ from PySide6.QtCore import (
     QDir,
     QEvent,
     QProcess,
-    QThread,
     QProcessEnvironment,
     QTimer,
     Qt,
@@ -2679,7 +2678,10 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_browse_btn.setEnabled(controls_enabled and installed is not None)
 
     def _set_step(self, step: int) -> None:
-        if self._machine.current_step == self._machine.STEP_REVIEW and step != self._machine.STEP_REVIEW:
+        if (
+            self._machine.current_step == self._machine.STEP_REVIEW
+            and step != self._machine.STEP_REVIEW
+        ):
             self._stop_fastboot_check()
         self._machine.set_step(step)
 
@@ -2755,7 +2757,6 @@ class ProvisionMainWindow(QMainWindow):
             self._set_step(row)
         else:
             self._steps.setCurrentRow(self._machine.current_step)
-
 
     def _is_completed_flash_history_step(self, step: int) -> bool:
         return self.state.flash_ret == 0 and step in {

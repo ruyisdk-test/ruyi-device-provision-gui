@@ -402,6 +402,7 @@ def binary_architecture(path: Path) -> str:
         if byte_order_val is None:
             return "unknown"
         from typing import cast, Literal
+
         byte_order = cast(Literal["little", "big"], byte_order_val)
         machine = int.from_bytes(header[18:20], byte_order)
         if machine == 243:
@@ -416,6 +417,7 @@ def binary_architecture(path: Path) -> str:
     }.get(header[:4])
     if mach_byte_order_val is not None and len(header) >= 8:
         from typing import cast, Literal
+
         mach_byte_order = cast(Literal["little", "big"], mach_byte_order_val)
         cpu_type = int.from_bytes(header[4:8], mach_byte_order)
         return {

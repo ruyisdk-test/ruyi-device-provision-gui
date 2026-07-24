@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from .state import WizardState
-    from .ruyi_facade import PreparedProvision
 
 
 class ProvisionStateMachine:
@@ -93,6 +92,7 @@ class ProvisionStateMachine:
             # customization; otherwise the page is unpopulated and would be
             # blank/confusing.
             from .ruyi_facade import is_package_version_customization_possible
+
             return (
                 self.state.combo is not None
                 and bool(self.state.pkg_atoms)

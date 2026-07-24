@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 
-import pytest
 
 # Force the offscreen Qt platform so the tests don't need a real display.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -285,5 +284,3 @@ def test_flash_worker_emits_carriage_return_output() -> None:
             os.close(write_fd)
 
     assert b"".join(captured) == b"1024 bytes\r2048 bytes\ndone"
-
-
